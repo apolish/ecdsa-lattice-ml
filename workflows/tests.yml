@@ -1,0 +1,54 @@
+name: tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is in the matrix on purpose: the project is developed on
+        # WSL/OneDrive, and path handling differs. macOS ships OpenSSL 3.x,
+        # which is exactly where hashlib drops RIPEMD-160 (see CHANGELOG C12).
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # No install step: the project is standard-library only. If that ever
+      # stops being true, this job fails loudly, which is the point.
+      # The \b is load-bearing: without it, `ecdsa` matches
+      # `import ecdsa_attack_complexity`, which is a local module. Verified.
+      - name: Assert zero third-party imports
+        shell: bash
+        run: |
+          if grep -rnE '^[[:space:]]*(import|from)[[:space:]]+(numpy|pandas|scipy|sympy|gmpy2|ecdsa|fpylll|requests|cryptography|pycryptodome)\b' \
+               --include='*.py' . ; then
+            echo "::error::third-party import found; README and CI claim stdlib-only"
+            exit 1
+          fi
+
+      - name: Regression suite
+        run: python tests/test_fixes.py
+
+      - name: Smoke - toy curve corpus (reproducible)
+        run: python generate_transaction_list.py --curve-mode test --keys 2 --tx-per-key 5 --seed 1 --outdir "${{ runner.temp }}/out"
+
+      - name: Smoke - cost model
+        run: python ecdsa_attack_complexity.py --no-legend
+
+      - name: Smoke - standalone module invocation (README 5)
+        shell: bash
+        run: |
+          cd ecurve
+          python k_magnitude.py --curve-mode test --digits 47

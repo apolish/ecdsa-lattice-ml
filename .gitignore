@@ -1,0 +1,48 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Internal documents ---
+docs/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ecdsa-env/
+
+# --- Generated artifacts -------------------------------------------------
+# Everything below is PRODUCED by the scripts and must not be committed.
+# Curated examples live in data/ and are added there deliberately, by hand.
+
+# `cd ecurve && python secp256k1.py > secp256k1.txt` writes a ~1.9 MB dump
+# INSIDE the package directory. Documented in README §5; ignore it there.
+ecurve/secp256k1.txt
+secp256k1.txt
+
+# generate_transaction_list.py default output
+out/
+transaction_list_*.txt
+!data/transaction_list_*.txt
+
+# ecdsa_attack_complexity.py --csv
+*.csv
+!data/*.csv
+
+# k_magnitude.py redirects
+ecurve/k_magnitude.txt
+k_magnitude.txt
+
+# --- OneDrive / OS noise ---
+.DS_Store
+Thumbs.db
+desktop.ini
+~$*
