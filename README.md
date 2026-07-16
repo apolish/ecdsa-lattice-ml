@@ -636,3 +636,17 @@ Enforced by `tests/test_fixes.py` (29 tests, all passing):
 - BIP 143, *Transaction Signature Verification for Version 0 Witness Program*.
 - Dobbertin, Bosselaers & Preneel, *RIPEMD-160: A Strengthened Version of
   RIPEMD* — FSE 1996.
+
+---
+
+## 10. License
+
+Released under MIT License (see LICENSE file).
+
+---
+
+## 11. Project on JIRA
+
+Tracking and monitoring tasks related to the current project can be found here:
+
+[![Go to JIRA](https://img.shields.io/badge/JIRA-Visit-blue)](https://cryptonsystemslab.atlassian.net/jira/core/projects/CSL/board?filter=&groupBy=status&atlOrigin=eyJpIjoiZWYwNGI4ODlhYmZjNDdkNGIwMGM3NWUwNzk0MTBjNGYiLCJwIjoiaiJ9)
