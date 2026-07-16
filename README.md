@@ -383,13 +383,11 @@ model is undefined for `k < 10`; for a 256-bit curve `P(k < 10) ≈ 1e−76`.
 **The measured result, and why it is a negative one.** On real secp256k1
 (`n` has 78 digits, starting `11`):
 
-```markdown
 | Leading pair | Predicted `D` | Probability |
 |---|---|---|
 | `12 … 99` (88 pairs) | 77 | 0.900 |
 | `10` | 78 | 0.900 |
 | `11` | 78 | 0.839 |
-```
 
 The predictor is essentially a **constant function**. Its ≈0.90 accuracy is the
 base rate of "`n` has 78 digits, so 90% of values below it have 77" — it is the
