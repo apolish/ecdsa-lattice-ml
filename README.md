@@ -1,8 +1,7 @@
 # ecdsa_lattice_ml
 
-A research codebase for a hypothetical attack on ECDSA using lattice reduction 
-and advanced ML/DL approaches to predict leakage of the leading bits of each 
-signature k-nonce.
+Research on hypothetical attacks on ECDSA using lattices and advanced ML/DL 
+approaches to predict leakage of the leading bits of each signature k-nonce.
 
 Version 1.1.1. See `CHANGELOG.md` for the audit fixes behind this release.
 
