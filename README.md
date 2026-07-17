@@ -1,9 +1,8 @@
 # ecdsa_lattice_ml
 
-A research and teaching codebase for studying the combinatorial structure of
-ECDSA over secp256k1, and for costing a **hypothetical** Hidden Number Problem
-(HNP) lattice attack that assumes an oracle leaking the leading bits of each
-signature nonce.
+A research codebase for a hypothetical attack on ECDSA using lattice reduction 
+and advanced ML/DL approaches to predict leakage of the leading bits of each 
+signature k-nonce.
 
 Version 1.1.1. See `CHANGELOG.md` for the audit fixes behind this release.
 
