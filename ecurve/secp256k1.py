@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""PEP 8 compliant secp256k1 demo with key generation, signing, verification,
-and curve analysis for both test and legacy parameters.
+"""PEP 8 compliant secp256k1 demo with key generation, signing, and
+verification for both test and legacy parameters.
 
 POINT REPRESENTATION
 ====================
@@ -18,21 +18,20 @@ SIGNATURE TUPLE
   * ``r_y`` is ``(k*G).y mod p``  -- the RAW affine coordinate, NOT reduced
 
 FIX B6: the original reduced ``r_y`` mod n. That is meaningless (y lives mod
-p) and silently corrupted the coordinate whenever y >= n, breaking the
-topology comparison downstream. On TEST_PARAMS (p - n = 59376) this fired
-about once in 21,000 signatures; verified at k=1028 and k=12524.
+p) and silently corrupted the coordinate whenever y >= n. On TEST_PARAMS
+(p - n = 59376) this fired about once in 21,000 signatures; verified at
+k=1028 and k=12524.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
 import hmac
-import math
 import os
 import random
 import secrets
 import time
-from typing import Iterator, List, Optional, Tuple
+from typing import Iterator, Optional, Tuple
 
 try:  # works as a package module (python -m ecurve.secp256k1)
     from ._ripemd160 import ripemd160 as _ripemd160_fallback
@@ -334,70 +333,14 @@ def int_to_bytes(value: int, byteorder: str = 'big') -> bytes:
 class Secp256k1:
     """Elliptic curve cryptography implementation for secp256k1."""
 
-    #: Number of "1"-flagged additions performed by ``scalar_multiply`` that
-    #: never reach the topology log. ``point_add(None, p)`` short-circuits with
-    #: ``return p2`` before a row is recorded, so the very first set bit of the
-    #: scalar produces no row. Verified: popcount(k) - recorded_ones == 1 for
-    #: every k tested. ``count_subsets`` compensates for this; see the note
-    #: there before changing anything.
-    UNRECORDED_LEADING_ADDS = 1
-
     def __init__(self, params: CurveParams):
         """Initialize curve with given parameters."""
         self._curve = params
-        self._topology_of_private_key: List[List[int | str]] = []
-        self._topology_of_k_nonce_key: List[List[int | str]] = []
-        self._trace_topology: bool = False
-        self._last_nonce_point: Point = None
 
     @property
     def curve(self) -> CurveParams:
         """Return elliptic curve parameters."""
         return self._curve
-
-    @property
-    def last_nonce_point(self) -> Point:
-        """Raw affine point k*G (both coordinates mod p) from the last
-        ``sign_message`` call.
-
-        FIX B6 (completion): ``r_x`` is ``x mod n`` by ECDSA definition, but
-        the topology log stores ``x mod p``. Comparing ``(r_x, r_y)`` against
-        topology rows therefore mismatches whenever ``x >= n`` -- about 1 in
-        21,000 on TEST_PARAMS (p - n = 59376). Reducing r_y was only half the
-        defect; callers that need to match the topology must use the untouched
-        point, which is what this exposes. Cached during signing, so it costs
-        no extra scalar multiplication.
-        """
-        return self._last_nonce_point
-
-    def get_topology_of_key(self, type_of_key: str = "private") -> List[List[int | str]]:
-        """Return recorded topology of private key generation steps."""
-        return self._topology_of_private_key if type_of_key == "private" else self._topology_of_k_nonce_key
-
-    def _prepare_topology_of_key(self, q: Tuple[int, int], type_of_key: str = "private") -> None:
-        """Truncate recorded topology at the final public key.
-
-        FIX E20: the original scanned forward and stopped at the FIRST row
-        whose (x3, y3) matched q. Doubling rows are candidates too, so a
-        coincidental match truncated the log early. Scan backwards for the
-        LAST match, which is by construction the final accumulator update.
-        """
-        x3, y3 = q
-        topology_of_key = self._topology_of_private_key if type_of_key == "private" else self._topology_of_k_nonce_key
-
-        cut = -1
-        for idx in range(len(topology_of_key) - 1, -1, -1):
-            row = topology_of_key[idx]
-            if row[4] == x3 and row[5] == y3:
-                cut = idx
-                break
-
-        kept = topology_of_key[:cut + 1] if cut >= 0 else list(topology_of_key)
-
-        if type_of_key == "private":
-            self._topology_of_private_key = kept
-        else:
-            self._topology_of_k_nonce_key = kept
 
     # ------------------------------------------------------------------
     # RFC 6979 (deterministic nonce)
@@ -505,7 +448,7 @@ class Secp256k1:
         x, y = point
         return (y**2 - x**3 - self._curve.a * x - self._curve.b) % self._curve.p == 0
 
-    def point_add(self, p1: Point, p2: Point, op_flag: str | None = None, type_of_key: str = "private") -> Point:
+    def point_add(self, p1: Point, p2: Point) -> Point:
         """Add two elliptic curve points using group law."""
         if p1 is None:
             return p2
@@ -531,15 +474,9 @@ class Secp256k1:
             x3 = (m**2 - x1 - x2) % self._curve.p
         y3 = (m * (x1 - x3) - y1) % self._curve.p
 
-        if self._trace_topology:
-            if type_of_key == "private":
-                self._topology_of_private_key.append([x1, y1, x2, y2, x3, y3, op_flag or ""])
-            else:
-                self._topology_of_k_nonce_key.append([x1, y1, x2, y2, x3, y3, op_flag or ""])
-
         return x3, y3
 
-    def scalar_multiply(self, k: int, p: Point, type_of_key: str = "private") -> Point:
+    def scalar_multiply(self, k: int, p: Point) -> Point:
         """Perform scalar multiplication of a point by integer k.
 
         Returns ``None`` for the point at infinity.
@@ -549,8 +486,7 @@ class Secp256k1:
         (b != 0), so it silently propagated as a bogus "valid-looking" point.
 
         FIX E19: the original doubled ``p`` once more after consuming the
-        final bit of k -- one wasted point operation per call plus a spurious
-        topology row.
+        final bit of k -- one wasted point operation per call.
         """
         if p is None:
             return None
@@ -559,22 +495,14 @@ class Secp256k1:
         if k < 0:
             k = k % self._curve.n
 
-        if self._trace_topology:
-            if type_of_key == "private":
-                self._topology_of_private_key.clear()
-            else:
-                self._topology_of_k_nonce_key.clear()
-
         q: Point = None
         while k:
             if k & 1:
-                q = self.point_add(q, p, op_flag="1", type_of_key=type_of_key)
+                q = self.point_add(q, p)
             k >>= 1
             if k:  # skip the final, unused doubling
-                p = self.point_add(p, p, op_flag="", type_of_key=type_of_key)
+                p = self.point_add(p, p)
 
-        if q is not None and self._trace_topology:
-            self._prepare_topology_of_key(q, type_of_key)
         return q
 
     def generate_keypair(self, private_key: Optional[int] = None) -> Tuple[int, Tuple[int, int]]:
@@ -587,11 +515,7 @@ class Secp256k1:
             raise ValueError(
                 f"private key must be in [1, n-1]; got {private_key}"
             )
-        self._trace_topology = True
-        try:
-            public_key = self.scalar_multiply(private_key, self._curve.g, type_of_key="private")
-        finally:
-            self._trace_topology = False
+        public_key = self.scalar_multiply(private_key, self._curve.g)
         if public_key is None:
             raise ValueError("private key maps to the point at infinity")
         return private_key, public_key
@@ -643,15 +567,10 @@ class Secp256k1:
         for k in self._k_candidates(private_key, z, min_start_range):
             if k < min_start_range:
                 continue
-            self._trace_topology = True
-            try:
-                point = self.scalar_multiply(k, self._curve.g, type_of_key="k_nonce")
-            finally:
-                self._trace_topology = False
+            point = self.scalar_multiply(k, self._curve.g)
             if point is None:
                 continue
             x, y = point
-            self._last_nonce_point = (x, y)  # raw, mod p -- see last_nonce_point
             r_x = x % self._curve.n
             r_y = y  # FIX B6: raw affine coordinate, mod p
             if r_x == 0:
@@ -676,8 +595,8 @@ class Secp256k1:
         w = self.inverse_mod(s, self._curve.n)
         u1 = (z * w) % self._curve.n
         u2 = (r * w) % self._curve.n
-        p1 = self.scalar_multiply(u1, self._curve.g, type_of_key="private")
-        p2 = self.scalar_multiply(u2, public_key, type_of_key="private")
+        p1 = self.scalar_multiply(u1, self._curve.g)
+        p2 = self.scalar_multiply(u2, public_key)
         if p1 is None or p2 is None:
             return False
         total = self.point_add(p1, p2)
@@ -686,98 +605,11 @@ class Secp256k1:
         x, _y = total
         return (x % self._curve.n) == r
 
-    def get_double_points(self) -> List[Tuple[int, int]]:
-        """Generate sequence of double points starting from base point.
-
-        Returns [G, 2G, 4G, ..., 2^(l+1) G]  (l + 2 points).
-        """
-        was_tracing = self._trace_topology
-        self._trace_topology = False
-        try:
-            points: List[Tuple[int, int]] = [self._curve.g]
-            p = self.point_add(self._curve.g, self._curve.g)
-            points.append(p)
-            i = 1
-            while i <= self._curve.l:
-                p = self.point_add(p, p)
-                points.append(p)
-                i += 1
-            return points
-        finally:
-            self._trace_topology = was_tracing
-
     @staticmethod
     def inverse_point(p: Tuple[int, int], mod_p: int) -> Tuple[int, int]:
         """Return additive inverse of a point modulo p."""
         x, y = p
         return x, (-y) % mod_p
-
-    @staticmethod
-    def count_subsets(idx_x1y1_first, idx_x2y2_first, total_adds, idx_x2y2_last) -> Tuple[int, int, int]:
-        """Compute number of possible point subsets given topology parameters.
-
-        FIX C9: ``combination_size = total_adds - 2`` went negative whenever
-        ``total_adds < 2`` (a nonce whose recorded additions number fewer than
-        two, e.g. a scalar with a single set bit). ``math.comb`` then raised
-        ``ValueError: k must be a non-negative integer``. Clamped to 0, which
-        yields C(n, 0) = 1: exactly one (empty) subset.
-
-        BEHAVIOUR PRESERVED, NOT "FIXED": the magic ``- 2`` is left intact so
-        every previously generated ``condition*`` value still reproduces.
-        Note that ``total_adds`` already undercounts real additions by
-        ``UNRECORDED_LEADING_ADDS`` (= 1), because ``point_add(None, p)``
-        returns early without logging. So ``- 2`` is ``- 1`` for that
-        off-by-one plus ``- 1`` whose provenance is undocumented in the
-        original. This is flagged, not silently changed: altering it would
-        renumber every row of every existing report.
-        """
-        total_numbers = idx_x2y2_last - idx_x2y2_first - idx_x1y1_first
-        combination_size = total_adds - 2
-        if total_numbers < 0:
-            total_numbers = total_adds
-        if combination_size < 0:
-            combination_size = 0
-        if total_numbers < 0:
-            total_numbers = 0
-        total_combinations = math.comb(total_numbers, combination_size)
-        return total_numbers, combination_size, total_combinations
-
-    def restore_point(self, r: Tuple[int, int], q: Tuple[int, int]) -> Point:
-        """Recover point p1 from r = p1 + q and q."""
-        q_inv = self.inverse_point(q, self._curve.p)
-        return self.point_add(r, q_inv)
-
-    def identify_condition(
-        self,
-        topology_of_key: List[List[int | str]],
-        double_points: List[Tuple[int, int]],
-        public_key: Tuple[int, int],
-    ) -> str:
-        """Extract key generation condition identifiers from topology data."""
-        idx_x1y1_first = 0
-        idx_x2y2_first = 0
-        total_adds = 0
-
-        double_index = {pt: i + 1 for i, pt in enumerate(double_points)}
-
-        for row in topology_of_key:
-            if row[6] == "1":
-                total_adds += 1
-                if total_adds == 1:
-                    a = (row[0], row[1])
-                    b = (row[2], row[3])
-                    if a in double_index and b in double_index:
-                        idx_x1y1_first = double_index[a]
-                        idx_x2y2_first = double_index[b]
-
-        idx_x2y2_last = 0
-        if topology_of_key:
-            last = topology_of_key[-1]
-            b = (last[2], last[3])
-            if b in double_index and (last[4], last[5]) == public_key:
-                idx_x2y2_last = double_index[b]
-
-        return f"{idx_x1y1_first}_{idx_x2y2_first}_{total_adds}_{idx_x2y2_last}"
 
     def generate_unique_keys(self, count: int, min_start_range: int) -> list[int]:
         """Generate a list of unique random integers within a specified range.
@@ -861,133 +693,6 @@ def print_curve_run(curve: CurveParams, private_key: Optional[int] = None, sig_t
 
     t0 = time.time()
     print(f"Signature validation: {ec.verify_signature(public_key_Q, signature)}")
-    print(f"Spent time: {time.time() - t0:.3f} sec.\n")
-
-    if curve.mode == "test":
-        col_w, line_len = 12, 81
-    else:
-        col_w, line_len = 80, 489
-    headers = ["x1", "y1", "x2", "y2", "x3", "y3", "operation"]
-    line = "-" * line_len
-
-    t0 = time.time()
-    print("Print double points:")
-    double_points = ec.get_double_points()
-    for point in double_points:
-        print(point)
-    print(f"Spent time: {time.time() - t0:.3f} sec.\n")
-
-    t0 = time.time()
-    topology_of_private_key = ec.get_topology_of_key(type_of_key="private")
-    if topology_of_private_key:
-        print("Print topology of private key:")
-        print(line)
-        print("".join(f"{h:<{col_w}}" for h in headers))
-        print(line)
-        for row in topology_of_private_key:
-            print("".join(f"{str(v):<{col_w}}" for v in row))
-        print(line)
-        print("".join(f"{h:<{col_w}}" for h in headers))
-        print(line)
-    print(f"Spent time: {time.time() - t0:.3f} sec.\n")
-
-    t0 = time.time()
-    print("Identify the conditions (based on the topology of private key):")
-    idx_x1y1_first, idx_x2y2_first, total_adds, idx_x2y2_last = map(
-        int, ec.identify_condition(topology_of_private_key, double_points, public_key_Q).split("_")
-    )
-    print(f"Index of (x1, y1) point in first addition: {idx_x1y1_first}")
-    print(f"Index of (x2, y2) point in first addition: {idx_x2y2_first}")
-    print(f"Total added point count:                   {total_adds}")
-    print(f"Index of (x2, y2) point in last addition:  {idx_x2y2_last}")
-    print("Subset count:")
-    total_numbers, combination_size, total_combinations = ec.count_subsets(
-        idx_x1y1_first, idx_x2y2_first, total_adds, idx_x2y2_last
-    )
-    print(f"* Total numbers of unknown (x2, y2) points: {total_numbers}")
-    print(f"* Count of added points (operation = 1):    {combination_size}")
-    print(f"* Total combination count C({total_numbers}, {combination_size}): {total_combinations:,}")
-    print(f"Spent time: {time.time() - t0:.3f} sec.\n")
-
-    t0 = time.time()
-    print("Inverse the last point (based on the topology of private key):")
-    if topology_of_private_key:
-        last = topology_of_private_key[-1]
-        x1, y1, x3, y3 = last[0], last[1], last[4], last[5]
-        x2, y2 = double_points[idx_x2y2_last - 1] if idx_x2y2_last > 0 else double_points[0]
-        p_restored = ec.restore_point((x3, y3), (x2, y2))
-        if (x1, y1) == p_restored:
-            print(f"Last known point (x3, y3) = {(x3, y3)}")
-            print(f"Last known point (x2, y2) = {(x2, y2)}")
-            print(f"Last known point (x1, y1) = {p_restored} [restored]")
-            if ec.is_on_curve(p_restored):
-                print(f"A point {p_restored} belongs to a curve!")
-            else:
-                print(f"A point {p_restored} does not belong to a curve!")
-        else:
-            print("Couldn't find last known point!")
-    else:
-        print("No topology data.")
-    print(f"Spent time: {time.time() - t0:.3f} sec.\n")
-
-    t0 = time.time()
-    topology_of_k_nonce_key = ec.get_topology_of_key(type_of_key="k_nonce")
-    if topology_of_k_nonce_key:
-        print("Print topology of k nonce key:")
-        print(line)
-        print("".join(f"{h:<{col_w}}" for h in headers))
-        print(line)
-        for row in topology_of_k_nonce_key:
-            print("".join(f"{str(v):<{col_w}}" for v in row))
-        print(line)
-        print("".join(f"{h:<{col_w}}" for h in headers))
-        print(line)
-    print(f"Spent time: {time.time() - t0:.3f} sec.\n")
-
-    t0 = time.time()
-    # FIX B6: r_y is the raw affine y (mod p), so this point now actually
-    # matches the topology rows. The original passed (r_x, r_y % n).
-    # FIX B6 (completion): use the untouched k*G point. The previous line here
-    # was `(signature[1] if signature[1] < curve.p else signature[1], ...)`,
-    # a no-op ternary that always yielded signature[1] (= x mod n) and so still
-    # mismatched the topology whenever x >= n.
-    public_key_R = ec.last_nonce_point
-    print("Identify the conditions (based on the topology of k_nonced key):")
-    idx_x1y1_first, idx_x2y2_first, total_adds, idx_x2y2_last = map(
-        int, ec.identify_condition(topology_of_k_nonce_key, double_points, public_key_R).split("_")
-    )
-    print(f"Index of (x1, y1) point in first addition: {idx_x1y1_first}")
-    print(f"Index of (x2, y2) point in first addition: {idx_x2y2_first}")
-    print(f"Total added point count:                   {total_adds}")
-    print(f"Index of (x2, y2) point in last addition:  {idx_x2y2_last}")
-    print("Subset count:")
-    total_numbers, combination_size, total_combinations = ec.count_subsets(
-        idx_x1y1_first, idx_x2y2_first, total_adds, idx_x2y2_last
-    )
-    print(f"* Total numbers of unknown (x2, y2) points: {total_numbers}")
-    print(f"* Count of added points (operation = 1):    {combination_size}")
-    print(f"* Total combination count C({total_numbers}, {combination_size}): {total_combinations:,}")
-    print(f"Spent time: {time.time() - t0:.3f} sec.\n")
-
-    t0 = time.time()
-    print("Inverse the last point (based on the topology of k_nonced key):")
-    if topology_of_k_nonce_key:
-        last = topology_of_k_nonce_key[-1]
-        x1, y1, x3, y3 = last[0], last[1], last[4], last[5]
-        x2, y2 = double_points[idx_x2y2_last - 1] if idx_x2y2_last > 0 else double_points[0]
-        p_restored = ec.restore_point((x3, y3), (x2, y2))
-        if (x1, y1) == p_restored:
-            print(f"Last known point (x3, y3) = {(x3, y3)}")
-            print(f"Last known point (x2, y2) = {(x2, y2)}")
-            print(f"Last known point (x1, y1) = {p_restored} [restored]")
-            if ec.is_on_curve(p_restored):
-                print(f"A point {p_restored} belongs to a curve!")
-            else:
-                print(f"A point {p_restored} does not belong to a curve!")
-        else:
-            print("Couldn't find last known point!")
-    else:
-        print("No topology data.")
     print(f"Spent time: {time.time() - t0:.3f} sec.\n")
 
 

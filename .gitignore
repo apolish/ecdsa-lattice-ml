@@ -9,6 +9,7 @@ dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*_new.py
 
 # --- Internal documents ---
 docs/

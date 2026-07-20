@@ -74,7 +74,7 @@ class ReportConfig:
     column_widths: Sequence[int]
     line_length: int
     headers: Sequence[str] = (
-        "s", "z", "r(x)", "r(y)", "d*", "k*", "k^(-1)*", "condition*",
+        "s", "z", "r(x)", "r(y)", "d*", "k*", "k^(-1)*",
         "ml_exp_k_val", "ml_act_k_val", "ml_match_k_val",
         "ml_exp_k_mag", "ml_act_k_mag", "ml_match_k_mag",
     )
@@ -82,7 +82,6 @@ class ReportConfig:
 
 def _build_report_config(curve: CurveParams) -> ReportConfig:
     count = 7
-    condition_col_width = 16
     ml_col_width = 15
     if curve.mode == "test":
         getcontext().prec = 20
@@ -90,8 +89,8 @@ def _build_report_config(curve: CurveParams) -> ReportConfig:
     else:
         getcontext().prec = 80
         width = 81
-    column_widths = ([width] * count) + [condition_col_width] + [ml_col_width] * 6
-    line_length = (width * count) + condition_col_width + (ml_col_width * 6)
+    column_widths = ([width] * count) + [ml_col_width] * 6
+    line_length = (width * count) + (ml_col_width * 6)
     return ReportConfig(column_widths=column_widths, line_length=line_length)
 
 
@@ -267,7 +266,6 @@ def _collect_rows(
 
     rows: List[Sequence[object]] = []
     progress_step = max(1, effective_key_count // 10)
-    double_points = ec.get_double_points()
 
     # =========================== ML SIMULATION CODE ===============================
     # NOT A MODEL. A shuffled boolean mask sized to the transactions that will
@@ -349,15 +347,6 @@ def _collect_rows(
 
             rows.append([
                 s, z, r_x, r_y, current_key, k, k_inv,
-                # FIX B6 (completion): identify_condition compares against the
-                # topology, which stores coordinates mod p. r_x is x mod n by
-                # ECDSA definition, so passing (r_x, r_y) mismatched whenever
-                # x >= n (~1 in 21,000 on the test curve). Use the raw point.
-                ec.identify_condition(
-                    ec.get_topology_of_key(type_of_key="k_nonce"),
-                    double_points,
-                    ec.last_nonce_point,
-                ),
                 ml_exp_k_val, ml_act_k_val, ml_match_k_val,
                 ml_exp_k_mag, ml_act_k_mag, ml_match_k_mag,
             ])
@@ -371,8 +360,8 @@ def _collect_rows(
     # planned figure. Guard against an empty run instead of ZeroDivisionError.
     total_transaction_count = len(rows)
     if total_transaction_count:
-        ml_accuracy_k_val = sum(1 for row in rows if row[10] == "Yes") / total_transaction_count
-        ml_accuracy_k_mag = sum(1 for row in rows if row[13] == "Yes") / total_transaction_count
+        ml_accuracy_k_val = sum(1 for row in rows if row[9] == "Yes") / total_transaction_count
+        ml_accuracy_k_mag = sum(1 for row in rows if row[12] == "Yes") / total_transaction_count
     else:
         ml_accuracy_k_val = ml_accuracy_k_mag = 0.0
 

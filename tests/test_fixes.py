@@ -145,40 +145,6 @@ def test_A3_ripemd160_fallback_importable_both_ways():
 
 
 # --------------------------------------------------------------------------
-# B6b -- last_nonce_point matches the topology even when x >= n
-# --------------------------------------------------------------------------
-def test_B6b_last_nonce_point_is_raw():
-    ec = Secp256k1(TEST_PARAMS)
-    n = TEST_PARAMS.n
-    for _ in range(200):
-        d, _pub = ec.generate_keypair()
-        z, r_x, r_y, s, k, k_inv = ec.sign_message(d, b"m", 1)
-        x, y = ec.last_nonce_point
-        assert (x % n) == r_x and y == r_y
-        assert ec.is_on_curve(ec.last_nonce_point)
-
-
-def test_B6b_condition_resolves_when_x_exceeds_n():
-    """k=1028 on the test curve gives x=1241684981 >= n. The old
-    (r_x, r_y) comparison could not match the topology; the raw point must."""
-    ec = Secp256k1(TEST_PARAMS)
-    x, y = ec.scalar_multiply(1028, TEST_PARAMS.g)
-    assert x >= TEST_PARAMS.n          # precondition of the bug
-    assert (x % TEST_PARAMS.n) != x    # reduction really does corrupt it
-    ec._trace_topology = True
-    try:
-        pt = ec.scalar_multiply(1028, TEST_PARAMS.g, type_of_key="k_nonce")
-    finally:
-        ec._trace_topology = False
-    topo = ec.get_topology_of_key("k_nonce")
-    dp = ec.get_double_points()
-    good = ec.identify_condition(topo, dp, pt)
-    bad = ec.identify_condition(topo, dp, (x % TEST_PARAMS.n, y))
-    assert good.split("_")[3] != "0"   # raw point resolves idx_x2y2_last
-    assert bad.split("_")[3] == "0"    # reduced point silently fails to
-
-
-# --------------------------------------------------------------------------
 # A2 -- demo no longer crashes
 # --------------------------------------------------------------------------
 def test_A2_demo_runs():
@@ -207,7 +173,7 @@ def test_B3_accuracy_denominator():
         f"_collect_rows is dividing by a planned figure, not by the rows it made"
     )
     # Recompute the accuracy independently from the rows and compare numerically.
-    matches = sum(1 for r in rows if r[10] == "Yes")
+    matches = sum(1 for r in rows if r[9] == "Yes")
     expected_pct = round(100.0 * matches / len(rows), 2)
     assert _pct(stats["ml_accuracy_k_val"]) == expected_pct, (
         f"reported {stats['ml_accuracy_k_val']!r} but rows give "
@@ -317,14 +283,6 @@ def test_C8_point_add_inverse_returns_none():
     p1 = ec.scalar_multiply(5, TEST_PARAMS.g)
     p2 = ec.inverse_point(p1, TEST_PARAMS.p)
     assert ec.point_add(p1, p2) is None
-
-
-# --------------------------------------------------------------------------
-# C9 -- count_subsets tolerates total_adds < 2
-# --------------------------------------------------------------------------
-def test_C9_count_subsets_small():
-    tot, size, comb = Secp256k1.count_subsets(1, 2, 1, 5)
-    assert size == 0 and comb == 1  # C(n, 0) == 1, no ValueError
 
 
 # --------------------------------------------------------------------------
