@@ -14,9 +14,11 @@ this is NOT a usable nonce-bit predictor. In a real attack you never observe a
 secret nonce's decimal digits, and the residual magnitude uncertainty is ~3.3
 bits (log2 10) per magnitude step.
 
-Empirically, on LEGACY_PARAMS every leading pair in 10..99 predicts D=77 with
-p=0.90 (except pair 11, p=0.839). The predictor is a constant function. Its
-0.90 accuracy is the base rate of "n has 77 digits", not information gained.
+Empirically, on LEGACY_PARAMS pairs 12..99 (88 of the 90 possible pairs)
+predict D=77 at p=0.90; the two exceptions are pair 10 (D=78, p=0.90) and pair
+11 (D=78, p=0.839). The predictor is therefore essentially a constant function:
+its ~0.90 accuracy is the base rate "n has 78 decimal digits, so ~90% of values
+below it have 77", not information gained from the leading pair.
 
 CONDITIONING
 ============

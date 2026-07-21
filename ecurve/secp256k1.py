@@ -19,8 +19,8 @@ SIGNATURE TUPLE
 
 FIX B6: the original reduced ``r_y`` mod n. That is meaningless (y lives mod
 p) and silently corrupted the coordinate whenever y >= n. On TEST_PARAMS
-(p - n = 59376) this fired about once in 21,000 signatures; verified at
-k=1028 and k=12524.
+(p - n = 59376) this fired about once in 21,000 signatures; the smallest
+witnesses (y >= n, so ``y % n != y % p``) are k=12524 and k=18152.
 """
 from __future__ import annotations
 
@@ -52,7 +52,6 @@ class CurveParams:
     b: int
     g: Tuple[int, int]
     n: int
-    l: int  # number of fixed (x2, y2) points
 
 
 TEST_PARAMS = CurveParams(
@@ -63,7 +62,6 @@ TEST_PARAMS = CurveParams(
     b=35,
     g=(311_072_572, 523_565_415),
     n=1_241_630_743,
-    l=29,
 )
 
 LEGACY_PARAMS = CurveParams(
@@ -77,7 +75,6 @@ LEGACY_PARAMS = CurveParams(
         0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8,
     ),
     n=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141,
-    l=254,
 )
 
 

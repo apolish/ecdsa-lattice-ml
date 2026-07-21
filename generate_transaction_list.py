@@ -280,12 +280,10 @@ def _collect_rows(
     magnitude_counter: Counter[int] = Counter()
 
     for i, current_key in enumerate(uniq_keys, start=1):
+        # generate_keypair returns d*G, which is on the curve by construction
+        # (or raises for the point at infinity), so no is_on_curve guard is
+        # needed here -- an earlier defensive branch was dead code.
         _, public_key = ec.generate_keypair(current_key)
-        if not ec.is_on_curve(public_key):
-            # FIX: the original `continue`d here without advancing correct_idx,
-            # silently desynchronising the mask from the rows.
-            correct_idx += transaction_limit_per_key
-            continue
 
         for _ in range(transaction_limit_per_key):
             if ec.curve.mode == "legacy":

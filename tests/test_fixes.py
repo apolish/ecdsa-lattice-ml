@@ -229,11 +229,15 @@ def test_B4_duration_years():
 
 
 # --------------------------------------------------------------------------
-# B5 -- heuristic branch is reachable
+# B5 -- timing default is an explicit, flat placeholder (there is NO
+#        dimension-dependent heuristic; the earlier tests assumed one)
 # --------------------------------------------------------------------------
-def test_B5_heuristic_default_none():
+def test_B5_t_per_run_sec_default_placeholder():
+    # When --t-per-run-sec is omitted the model uses a flat 2.0 s-per-reduction
+    # placeholder (order-of-magnitude only; see README section 3.10). This pins
+    # that default so it cannot drift silently.
     args = A.parse_args([])
-    assert args.t_per_run_sec is None
+    assert args.t_per_run_sec == 2.0
 
 
 # --------------------------------------------------------------------------
@@ -262,7 +266,7 @@ def test_B6_ry_not_reduced_mod_n():
 def test_B7_m_req_formula():
     from math import ceil
     for L in (5, 6, 7, 8):
-        got = A.required_clean_signatures(256, L, 1.3, None)
+        got = A.required_clean_signatures(256, L, 1.3)
         assert got == ceil(ceil(256 / L) * 1.3)
 
 
@@ -313,9 +317,12 @@ def test_C11_single_digit_message():
 # C12 -- hash160 works even if hashlib lacks ripemd160
 # --------------------------------------------------------------------------
 def test_C12_hash160():
-    # Known: HASH160 of the empty-string SHA256 chain is deterministic.
+    # HASH160(x) = RIPEMD160(SHA256(x)) must work even when hashlib lacks a
+    # native ripemd160 (OpenSSL 3.x): the pure-Python fallback kicks in.
+    # Pin the known digest of b"abc", not just the length.
     h = hash160(b"abc")
     assert len(h) == 20
+    assert h.hex() == "bb1be98c142444d7a56aa3981c3942a978e4dc33"
 
 
 # --------------------------------------------------------------------------
@@ -382,9 +389,11 @@ def test_E18_unique_keys_bounded():
 
 
 # --------------------------------------------------------------------------
-# E21 -- honest note: the ORIGINAL already matched RFC6979 vectors.
-# This test documents that the fix is about the rejection path + >=n case,
-# not about the common-case first candidate.
+# E21 -- magnitude_distribution is a proper (normalised) conditional
+#        distribution: probabilities sum to 1 over the D>=2 conditional space.
+#        (The RFC 6979 rejection / >= n behaviour that FIX E21 addressed is
+#        covered by test_C10_candidate_stream_advances and
+#        test_rfc6979_official_vectors.)
 # --------------------------------------------------------------------------
 def test_E21_distribution_conditioned_sums_to_one():
     dist = magnitude_distribution(47, LEGACY_PARAMS.n)
