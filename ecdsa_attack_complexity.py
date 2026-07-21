@@ -18,16 +18,19 @@ lattice reduction.  Any single poisoned signature destroys the reduction.
 This script evaluates the combinatorial cost of obtaining such a clean subset
 under the two-predictor model.
 
-Required user parameters
-------------------------
-  --curve-bits
-  --leak-bits
-  --cores
-  --t-per-run-sec
+Primary parameters (all have CLI defaults; override as needed)
+-------------------------------------------------------------
+  --curve-bits            (default 256)
+  --leak-bits             (default [6])
+  --cores                 (default [1, 8, 64, 124])
+  --t-per-run-sec         (default 2.0 s -- a flat placeholder; calibrate it)
   --p-ml-start / --p-ml-stop / --p-ml-step
-  --p-mag
+  --p-mag                 (default 90.0)
 
-Everything else is calculated automatically.
+Everything else is calculated automatically. Note that --t-per-run-sec is NOT
+measured here: unless you pass a calibrated value, the reported wall-clock
+times rest on a flat 2.0 s-per-reduction placeholder and are order-of-magnitude
+only.
 """
 
 from __future__ import annotations
@@ -227,7 +230,7 @@ def print_legend(cfg: Config) -> None:
     print("    decimal length of k")
     print()
     print(f"  p_b  = ML accuracy          (swept {cfg.acc_start:g} … {cfg.acc_stop:g} %)")
-    print(f"  p_m  = magnitude accuracy   ({cfg.p_mag:g} %)  [conditioned on correct digits]")
+    print(f"  p_m  = magnitude accuracy   ({cfg.p_mag:.2f} %)  [conditioned on correct digits]")
     print(f"  p_clean = p_b * p_m         (correlation p = {cfg.correlation:+.2f})")
     print()
     print("Combinatorial model:")
@@ -241,7 +244,8 @@ def print_legend(cfg: Config) -> None:
     print(f"leak_bits (L)  = {cfg.leak_bits}")
     print(f"safety_factor  = {cfg.safety_factor}")
     print(f"surplus        = {cfg.surplus}")
-    print(f"t_per_run_sec  = {cfg.t_per_run_sec:.4f} s   (user-provided)")
+    print(f"t_per_run_sec  = {cfg.t_per_run_sec:.4f} s   "
+          f"(calibrate per hardware; pass --t-per-run-sec)")
     print(f"cores          = {cfg.cores}")
     print(bar)
 
@@ -326,14 +330,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="bit length of the curve order n")
     g.add_argument("--leak-bits", type=int, nargs="+", default=[6],
                    help="number of leaked / predicted bits L (one table per value)")
-    g.add_argument("--cores", type=int, nargs="+", default=[1, 8, 64],
+    g.add_argument("--cores", type=int, nargs="+", default=[1, 8, 64, 124],
                    help="core counts for which wall-clock time is reported")
     g.add_argument("--t-per-run-sec", type=float, default=2.0,
                    help="calibrated wall-clock seconds of one lattice reduction")
     g.add_argument("--p-ml-start", type=float, default=80.0)
     g.add_argument("--p-ml-stop", type=float, default=99.0)
     g.add_argument("--p-ml-step", type=float, default=1.0)
-    g.add_argument("--p-mag", type=float, default=90.0,
+    g.add_argument("--p-mag", type=float, default=82.0,
                    help="magnitude predictor accuracy (%%) conditioned on correct leading digits")
 
     # --- Secondary parameters with safe defaults ---
@@ -372,6 +376,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error("--correlation must be in [-1, 1]")
     if args.safety_factor <= 0 or args.surplus <= 0:
         p.error("--safety-factor and --surplus must be positive")
+    if args.dim_overhead < 0:
+        p.error("--dim-overhead must be >= 0 (a negative overhead makes the "
+                "lattice dimension smaller than m_req)")
     if not (0.0 < args.filter_pass_rate <= 1.0):
         p.error("--filter-pass-rate must be in (0, 1]")
 
