@@ -1,4 +1,4 @@
-# --- Python ---
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -11,10 +11,13 @@ dist/
 .ruff_cache/
 *_new.py
 
-# --- Internal documents ---
+# VS Code
+.vscode/
+
+# Internal documents
 docs/
 
-# --- Virtual environments ---
+# Virtual environments
 .venv/
 venv/
 env/
@@ -42,7 +45,7 @@ transaction_list_*.txt
 ecurve/k_magnitude.txt
 k_magnitude.txt
 
-# --- OneDrive / OS noise ---
+# OneDrive / OS noise
 .DS_Store
 Thumbs.db
 desktop.ini
