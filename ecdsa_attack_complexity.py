@@ -508,7 +508,7 @@ def print_legend(cfg: Config, leak_bits: Sequence[int]) -> None:
     print("predictor correct. One poisoned signature destroys the reduction.")
     print()
     if cfg.p_mag_mode == "conditional":
-        print(f"  p_clean = p_b * p_m          p_m = {cfg.p_mag:.2f}% "
+        print(f"  p_clean = p_b * p_m (p_m = {cfg.p_mag:.2f}%) "
               f"[conditional; rho forced to 0]")
     else:
         print("  p_clean = clamp(p_b*p_m + rho*sqrt(p_b(1-p_b)p_m(1-p_m)), "
@@ -518,9 +518,9 @@ def print_legend(cfg: Config, leak_bits: Sequence[int]) -> None:
     print("  m_req   = ceil(ceil(log2(n)/L) * safety_factor)")
     print("  dim     = m_req + dim_overhead")
     if cfg.supply == "unlimited":
-        print("  q       = p_clean^m_req * p_succ           [unlimited supply]")
+        print("  q       = p_clean^m_req * p_succ [unlimited supply]")
     else:
-        print("  P(clean|pass) = p_clean * recall / pass_rate      [Bayes]")
+        print("  P(clean|pass) = p_clean * recall / pass_rate [Bayes]")
         print("  T_filt  = floor(pass_rate * T_raw)")
         print("  q       = C(C,m_req)/C(T_filt,m_req) * p_succ,  "
               "C ~ Bin(T_filt, P(clean|pass))")
@@ -530,14 +530,14 @@ def print_legend(cfg: Config, leak_bits: Sequence[int]) -> None:
     print()
     print(f"order_bits (log2 n) = {cfg.order_bits}")
     print(f"leak_bits (L)       = {list(leak_bits)}")
-    print(f"safety_factor       = {cfg.safety_factor}   [UNVALIDATED FUDGE]")
+    print(f"safety_factor       = {cfg.safety_factor} [UNVALIDATED FUDGE]")
     print(f"supply              = {cfg.supply}"
           + (f"   T_raw = {cfg.t_raw}" if cfg.supply == "scarce" else ""))
     if cfg.supply == "scarce":
         print(f"filter pass_rate    = {cfg.filter_pass_rate}   "
               f"recall = {cfg.filter_recall}")
     print(f"p_reduction_success = {cfg.p_reduction_success}"
-          + ("   [OPTIMISTIC: reduction assumed infallible]"
+          + (" [OPTIMISTIC: reduction assumed infallible]"
              if cfg.p_reduction_success >= 1.0 else ""))
     ref = cfg.t_run_dim_ref if cfg.t_run_dim_ref is not None else "first L's dim"
     print(f"t_per_run_sec       = {cfg.t_per_run_sec:g} s at dim {ref}")

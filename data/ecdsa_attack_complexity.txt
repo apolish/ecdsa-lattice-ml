@@ -5,19 +5,19 @@ ECDSA two-predictor subset-attack complexity  (v2, audited)
 CLEAN signature = leading-digit predictor correct AND magnitude
 predictor correct. One poisoned signature destroys the reduction.
 
-  p_clean = p_b * p_m          p_m = 82.00% [conditional; rho forced to 0]
+  p_clean = p_b * p_m (p_m = 82.00%) [conditional; rho forced to 0]
   m_req   = ceil(ceil(log2(n)/L) * safety_factor)
   dim     = m_req + dim_overhead
-  q       = p_clean^m_req * p_succ           [unlimited supply]
+  q       = p_clean^m_req * p_succ [unlimited supply]
   N       ~ Geometric(q)  ->  p05 / p50 / p95 reported
   t_run   = t0 * 2^((dim - dim_ref)/doubling_dims)
   time    = N * t_run / cores
 
 order_bits (log2 n) = 256
 leak_bits (L)       = [6]
-safety_factor       = 1.3   [UNVALIDATED FUDGE]
+safety_factor       = 1.3 [UNVALIDATED FUDGE]
 supply              = unlimited
-p_reduction_success = 1.0   [OPTIMISTIC: reduction assumed infallible]
+p_reduction_success = 1.0 [OPTIMISTIC: reduction assumed infallible]
 t_per_run_sec       = 2 s at dim first L's dim
                       [FLAT -- cost does not grow with dimension, which is
                        wrong; cross-L rows are NOT comparable]
