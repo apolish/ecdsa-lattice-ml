@@ -222,22 +222,38 @@ def test_B3b_denominator_survives_skipped_rows():
 # B4 -- fmt_duration converts seconds to years
 # --------------------------------------------------------------------------
 def test_B4_duration_years():
-    out = A.fmt_duration(40.0)  # 1e40 seconds
+    out = A.fmt_duration(40.0)  # 1e40 seconds, precision defaults to "orders"
     assert out.endswith("yr")
     exp = float(out[2:].split()[0])
     assert abs(exp - (40.0 - A._LOG10_SEC_PER_YEAR)) < 0.05  # ~32.5, not 40
 
 
+def test_B4b_duration_precision_is_optional():
+    """`precision` must stay optional.
+
+    v2 added a precision argument to fmt_duration. Making it mandatory broke
+    every existing caller (this suite included) for no benefit: "orders" is the
+    only defensible default, since the model cannot support more.
+    """
+    assert A.fmt_duration(40.0) == A.fmt_duration(40.0, "orders")
+    assert A.fmt_duration(40.0, "full") != A.fmt_duration(40.0, "orders")
+    assert A.fmt_duration(None) == "--"
+    assert A.fmt_duration(-3.0) == "<1 s"      # never render sub-second as "0 s"
+
+
 # --------------------------------------------------------------------------
-# B5 -- timing default is an explicit, flat placeholder (there is NO
-#        dimension-dependent heuristic; the earlier tests assumed one)
+# B5 -- timing default is an explicit, flat placeholder.
+#        v2 DOES have a dimension-dependent model, but it is opt-in via
+#        --t-run-doubling-dims. The flat default is pinned here so it cannot
+#        drift silently, and F3 covers the scaling model itself.
 # --------------------------------------------------------------------------
 def test_B5_t_per_run_sec_default_placeholder():
-    # When --t-per-run-sec is omitted the model uses a flat 2.0 s-per-reduction
-    # placeholder (order-of-magnitude only; see README section 3.10). This pins
-    # that default so it cannot drift silently.
     args = A.parse_args([])
     assert args.t_per_run_sec == 2.0
+    assert args.t_run_doubling_dims is None, (
+        "the dimension-scaling model must stay opt-in: silently switching it "
+        "on would change every published figure without notice"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -329,8 +345,18 @@ def test_C12_hash160():
 # D -- argument validation
 # --------------------------------------------------------------------------
 def test_D_complexity_rejects_bad_args():
-    for bad in (["--surplus", "-5"], ["--safety-factor", "-1"],
-                ["--dim-overhead", "-3"], ["--t-per-run-sec", "0"]):
+    # NOTE: `--surplus` is NOT in this list any more. v2 removed the flag
+    # outright (see F1), so a negative value is rejected because the option no
+    # longer exists, not because its range is validated. Asserting it here
+    # would be a test that passes for the wrong reason.
+    for bad in (["--safety-factor", "-1"], ["--dim-overhead", "-3"],
+                ["--t-per-run-sec", "0"], ["--curve-bits", "0"],
+                ["--leak-bits", "0"], ["--cores", "0"],
+                ["--p-mag", "0"], ["--p-mag", "101"],
+                ["--p-ml-step", "0"], ["--correlation", "1.5"],
+                ["--p-reduction-success", "0"],
+                ["--p-reduction-success", "1.1"],
+                ["--t-run-doubling-dims", "0"]):
         # argparse prints usage to stderr before raising SystemExit. That is the
         # expected path here, so swallow it: otherwise a passing suite dumps
         # pages of usage text that reads like a crash.
@@ -398,6 +424,347 @@ def test_E18_unique_keys_bounded():
 def test_E21_distribution_conditioned_sums_to_one():
     dist = magnitude_distribution(47, LEGACY_PARAMS.n)
     assert abs(sum(dist.values()) - 1.0) < 1e-12
+
+
+# ==========================================================================
+# F-SERIES -- second audit, of the cost model itself (ecdsa_attack_complexity)
+#
+# v1 was arithmetically sound but structurally wrong in ways that moved the
+# headline figure by orders of magnitude. One test per defect.
+# ==========================================================================
+
+def _cli(args):
+    """Run main() and capture stdout."""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        A.main(list(args))
+    return buf.getvalue()
+
+
+# --------------------------------------------------------------------------
+# F1 -- the supply model is explicit; `surplus` is gone.
+#       In v1, `surplus` (default 2.0) silently set the pool size and thereby
+#       controlled `runs` across ~11 orders of magnitude, while T_raw -- the
+#       only quantity that could have expressed signature scarcity -- fed into
+#       nothing at all. The correct i.i.d. limit is q = p_clean^m_req.
+# --------------------------------------------------------------------------
+def test_F1_surplus_flag_removed_with_explanation():
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        try:
+            A.parse_args(["--surplus", "2.0"])
+            raised = False
+        except SystemExit:
+            raised = True
+    assert raised, "--surplus must not be silently accepted"
+    assert "removed in v2" in err.getvalue(), (
+        "removing a flag without saying why just looks like a typo to the user"
+    )
+
+
+def test_F1_unlimited_supply_is_the_iid_limit():
+    from math import log10
+    m_req, p = 56, 0.738
+    got = A.log10_success_per_draw(None, m_req, None, p, 1.0)
+    assert abs(got - m_req * log10(p)) < 1e-12
+
+
+def test_F1_pool_params_rejected_without_scarce_supply():
+    for bad in (["--t-raw", "100"], ["--filter-pass-rate", "0.5"],
+                ["--filter-recall", "0.5"]):
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                A.parse_args(bad)
+                raised = False
+            except SystemExit:
+                raised = True
+        assert raised, f"{bad} accepted with unlimited supply; it is meaningless there"
+
+
+def test_F1_scarce_supply_requires_t_raw():
+    with contextlib.redirect_stderr(io.StringIO()):
+        try:
+            A.parse_args(["--supply", "scarce"])
+            raised = False
+        except SystemExit:
+            raised = True
+    assert raised
+
+
+# --------------------------------------------------------------------------
+# F2 -- the pre-filter obeys Bayes.
+#       v1 charged the cost of filtering (more raw signatures) and credited
+#       none of the benefit (a purer pool); filter_pass_rate influenced no
+#       result whatsoever.
+# --------------------------------------------------------------------------
+def test_F2_uninformative_filter_leaves_purity_unchanged():
+    post, fpr = A.bayes_post_clean(0.70, 0.5, 0.5)
+    assert abs(post - 0.70) < 1e-12, "a blind filter must not change purity"
+    assert abs(fpr - 0.5) < 1e-12
+
+
+def test_F2_informative_filter_raises_purity():
+    post, _ = A.bayes_post_clean(0.70, 0.80, 0.95)
+    assert 0.70 < post < 1.0, f"recall > pass_rate must enrich the pool; got {post}"
+
+
+def test_F2_implied_false_pass_rate_obeys_total_probability():
+    p_clean, pi, recall = 0.70, 0.80, 0.95
+    _, fpr = A.bayes_post_clean(p_clean, pi, recall)
+    assert abs(p_clean * recall + (1 - p_clean) * fpr - pi) < 1e-12
+
+
+def test_F2_inconsistent_filter_is_rejected():
+    # pass_rate below p_clean*recall implies P(clean|pass) > 1: impossible.
+    # v1 accepted such triples silently.
+    try:
+        A.bayes_post_clean(0.90, 0.50, 1.0)
+        raised = False
+    except ValueError:
+        raised = True
+    assert raised
+
+
+def test_F2_filter_pass_rate_actually_changes_the_answer():
+    """The v1 inertness regression, pinned.
+
+    In v1 you could vary --filter-pass-rate over a 20x range and every single
+    reported figure stayed byte-identical. Sweeping it must now move `runs`.
+    """
+    common = ["--supply", "scarce", "--p-ml-start", "90", "--p-ml-stop", "90",
+              "--no-legend"]
+    a = _cli(common + ["--t-raw", "400", "--filter-pass-rate", "1.0"])
+    b = _cli(common + ["--t-raw", "400", "--filter-pass-rate", "0.6"])
+    assert a != b, "filter_pass_rate is inert again; it must reach `runs`"
+
+
+# --------------------------------------------------------------------------
+# F3 -- reduction cost depends on lattice dimension.
+#       v1 computed `dim`, printed it, wrote it to CSV, and used it in no
+#       formula: every L was charged a flat 2.0 s. That inverts reality, where
+#       small L is expensive precisely because the lattice grows.
+# --------------------------------------------------------------------------
+def test_F3_t_run_doubles_every_D_dimensions():
+    from math import log10
+    lo = A.log10_t_run(58, 2.0, 58, 12)
+    hi = A.log10_t_run(70, 2.0, 58, 12)
+    assert abs((hi - lo) - log10(2.0)) < 1e-12
+
+
+def test_F3_t_run_flat_without_doubling_dims():
+    assert A.log10_t_run(200, 2.0, 58, None) == A.log10_t_run(44, 2.0, 58, None)
+
+
+def test_F3_dimension_is_load_bearing():
+    """`dim` must reach the cost. Different L -> different per-run time."""
+    out = _cli(["--leak-bits", "4", "8", "--t-run-doubling-dims", "12",
+                "--t-run-dim-ref", "58", "--p-ml-start", "90",
+                "--p-ml-stop", "90", "--no-legend"])
+    times = re.findall(r"t/run = ([\d.eE+-]+) s", out)
+    assert len(times) == 2, out
+    assert float(times[0]) != float(times[1]), (
+        "L=4 (dim 86) and L=8 (dim 44) were charged the same time; "
+        "`dimension` is decorative again"
+    )
+
+
+def test_F3_flat_model_warns_against_cross_L_comparison():
+    out = _cli(["--leak-bits", "4", "6", "8", "--p-ml-start", "90",
+                "--p-ml-stop", "90", "--no-legend"])
+    assert "Do not compare rows across L" in out
+
+
+# --------------------------------------------------------------------------
+# F4 -- the reduction is not assumed infallible.
+#       v1 implicitly set P(reduction succeeds | all-clean subset) = 1.
+# --------------------------------------------------------------------------
+def test_F4_p_reduction_success_enters_the_denominator():
+    from math import log10
+    full = A.log10_success_per_draw(None, 56, None, 0.738, 1.0)
+    half = A.log10_success_per_draw(None, 56, None, 0.738, 0.5)
+    assert abs((full - half) - log10(2.0)) < 1e-12, (
+        "halving the reduction success rate must double the expected runs"
+    )
+
+
+# --------------------------------------------------------------------------
+# F5 -- the p_m parameterisation is no longer over-determined.
+#       v1 documented p_m as conditional on correct leading digits AND offered
+#       a correlation knob. Holding both double-counts the dependence.
+# --------------------------------------------------------------------------
+def test_F5_correlation_rejected_in_conditional_mode():
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        try:
+            A.parse_args(["--correlation", "0.2"])
+            raised = False
+        except SystemExit:
+            raised = True
+    assert raised
+    assert "double-count" in err.getvalue()
+
+
+def test_F5_marginal_mode_accepts_correlation():
+    args = A.parse_args(["--p-mag-mode", "marginal", "--correlation", "0.126"])
+    assert args.correlation == 0.126
+
+
+def test_F5_positive_correlation_raises_p_clean():
+    indep = A.joint_clean_probability(0.90, 0.8888, 0.0)
+    corr = A.joint_clean_probability(0.90, 0.8888, 0.126)
+    assert corr > indep, "rho > 0 means the predictors fail together: easier"
+
+
+def test_F5_p_clean_always_within_frechet_bounds():
+    for p_b in (0.30, 0.50, 0.90, 0.99):
+        for p_m in (0.30, 0.50, 0.82, 0.99):
+            for rho in (-1.0, -0.5, 0.0, 0.5, 1.0):
+                v = A.joint_clean_probability(p_b, p_m, rho)
+                assert max(0.0, p_b + p_m - 1.0) - 1e-12 <= v <= min(p_b, p_m) + 1e-12, (
+                    f"p_clean={v} escapes Frechet for {p_b=} {p_m=} {rho=}"
+                )
+
+
+# --------------------------------------------------------------------------
+# F6 -- the output is a distribution, not a point.
+#       v1 froze the pool composition at its mean and called the result
+#       "expected runs". It is close to the MEDIAN; the true expectation is
+#       dominated by rare bad pools.
+# --------------------------------------------------------------------------
+def test_F6_quantiles_are_ordered():
+    q = A.log10_success_per_draw(None, 56, None, 0.738, 1.0)
+    comps = [(1.0, q)]
+    p05 = A.runs_quantile(0.05, comps)
+    p50 = A.runs_quantile(0.50, comps)
+    p95 = A.runs_quantile(0.95, comps)
+    assert p05 < p50 < p95
+
+
+def test_F6_median_matches_closed_form():
+    from math import log, log10
+    q = A.log10_success_per_draw(None, 56, None, 0.738, 1.0)
+    got = A.runs_quantile(0.50, [(1.0, q)])
+    want = log10(-log(0.5)) - q          # median of Geometric(q) = ln2 / q
+    assert abs(got - want) < 1e-6, f"{got} vs {want}"
+
+
+def test_F6_geometric_band_width_is_exact():
+    from math import log, log10
+    q = A.log10_success_per_draw(None, 56, None, 0.738, 1.0)
+    comps = [(1.0, q)]
+    width = A.runs_quantile(0.95, comps) - A.runs_quantile(0.05, comps)
+    assert abs(width - log10(log(0.05) / log(0.95))) < 1e-6
+
+
+def test_F6_scarce_pool_band_is_wider_than_iid():
+    """Pool-composition randomness must actually widen the band.
+
+    This is the Jensen error made visible: v1's single number hid it entirely.
+    """
+    q = A.log10_success_per_draw(None, 56, None, 0.738, 1.0)
+    iid = A.runs_quantile(0.95, [(1.0, q)]) - A.runs_quantile(0.05, [(1.0, q)])
+    out = _cli(["--supply", "scarce", "--t-raw", "200", "--p-ml-start", "90",
+                "--p-ml-stop", "90", "--no-legend"])
+    m = re.search(r"1e([\d.]+)\s+1e([\d.]+)\s+1e([\d.]+)", out)
+    assert m, out
+    scarce = float(m.group(3)) - float(m.group(1))
+    assert scarce > iid, f"scarce band {scarce:.2f} <= iid band {iid:.2f}"
+
+
+# --------------------------------------------------------------------------
+# F7 -- false precision removed.
+# --------------------------------------------------------------------------
+def test_F7_default_precision_is_orders():
+    assert A.parse_args([]).precision == "orders"
+
+
+def test_F7_unvalidated_assumptions_are_printed():
+    out = _cli(["--p-ml-start", "90", "--p-ml-stop", "90"])
+    assert "Unvalidated assumptions" in out
+    assert "partial ECDLP" in out, (
+        "the load-bearing caveat must travel with the table, not sit in a "
+        "README nobody opens"
+    )
+
+
+# --------------------------------------------------------------------------
+# F8 -- hygiene, plus the two defects the v2 test pass itself uncovered.
+# --------------------------------------------------------------------------
+def test_F8_accuracy_sweep_grid_does_not_drift():
+    for step in (1.0, 0.1, 0.25, 0.3, 0.7):
+        got = A.accuracy_sweep(80.0, 99.0, step)
+        want = int((99.0 - 80.0) / step + 1e-9) + 1
+        assert len(got) == want, f"step={step}: {len(got)} values, expected {want}"
+
+
+def test_F8_legend_reports_every_swept_L():
+    """v1's legend printed only leak_bits[0] above three different tables."""
+    out = _cli(["--leak-bits", "4", "6", "8", "--p-ml-start", "90",
+                "--p-ml-stop", "90"])
+    assert "[4, 6, 8]" in out, "the legend is under-reporting the sweep again"
+
+
+def test_F8_fully_clean_pool_does_not_raise():
+    """Regression: log1p(-q) is a domain error at q = 1.
+
+    A pool that is entirely clean gives q = C(T,m)/C(T,m) = 1 exactly, which
+    is reachable whenever p_clean is high and the pool is small.
+    """
+    out = _cli(["--supply", "scarce", "--t-raw", "60", "--p-mag", "99",
+                "--p-ml-start", "99", "--p-ml-stop", "99", "--no-legend"])
+    assert "0.9801" in out
+
+
+def test_F8_filter_recall_defaults_to_uninformative():
+    """Regression: a recall default of 1.0 makes most pass rates inconsistent.
+
+    With recall = 1.0 and p_clean = 0.738, any pass_rate < 0.738 implies
+    P(clean|pass) > 1 and the run aborts. The neutral default is
+    recall = pass_rate, i.e. a filter that only shrinks the pool.
+    """
+    args = A.parse_args(["--supply", "scarce", "--t-raw", "100",
+                         "--filter-pass-rate", "0.5"])
+    assert args.filter_recall == 0.5
+    out = _cli(["--supply", "scarce", "--t-raw", "400",
+                "--filter-pass-rate", "0.5", "--p-ml-start", "90",
+                "--p-ml-stop", "90", "--no-legend"])
+    assert "inconsistent" not in out
+
+
+def test_F8_undersized_pool_gives_actionable_advice():
+    """v1 printed a bare 'n/a', conflating 'infeasible' with 'below threshold'."""
+    out = _cli(["--supply", "scarce", "--t-raw", "40", "--p-ml-start", "90",
+                "--p-ml-stop", "90", "--no-legend"])
+    assert "need T_raw >=" in out, out
+
+
+def test_F8_readme_defaults_match_the_parser():
+    """The README must not drift from the code again.
+
+    v1 shipped three separate drifts at once: the module docstring claimed
+    `--p-mag default 90.0` against a real default of 82.0, and both the
+    docstring and the README listed `cores=[1, 8, 64]` against a real
+    [1, 8, 64, 124]. Parse the README's declared defaults and diff them.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "README.md"), encoding="utf-8") as f:
+        readme = f.read()
+    block = re.search(r"<!-- defaults:begin -->(.*?)<!-- defaults:end -->",
+                      readme, re.S)
+    assert block, "README is missing the machine-checked defaults block"
+
+    args = A.parse_args([])
+    declared = dict(re.findall(r"`([a-z_]+)\s*=\s*([^`]+)`", block.group(1)))
+    assert declared, "defaults block present but empty"
+    for name, raw in declared.items():
+        assert hasattr(args, name), f"README declares unknown option {name!r}"
+        actual = getattr(args, name)
+        want = raw.strip()
+        got = (f"[{', '.join(str(x) for x in actual)}]"
+               if isinstance(actual, list) else str(actual))
+        assert got == want, (
+            f"README says {name}={want!r}, parser gives {got!r}"
+        )
 
 
 def _run_standalone() -> int:

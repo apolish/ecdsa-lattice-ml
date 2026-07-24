@@ -19,8 +19,9 @@ Read this section before interpreting any number this project prints.
   parameter sets: real secp256k1, and `toy-p31r1`, a 31-bit fixture curve (§3.3.1).
 - Computes the exact conditional distribution of a nonce's decimal length given
   its first two decimal digits.
-- Evaluates a closed-form cost model for a two-filter subset HNP lattice attack
-  under an assumed nonce-bit leak.
+- Evaluates a cost model for a two-predictor subset HNP lattice attack under an
+  assumed nonce-bit leak, reporting a distribution of reduction counts rather
+  than a single figure (§3.10).
 
 **What the code does NOT do, and why it matters:**
 
@@ -62,7 +63,7 @@ ecdsa_lattice_ml/
 ├── lattice/
 ├── models/
 ├── tests/
-│   └── test_fixes.py                         # 27 regression tests (one per audit bug + invariants)
+│   └── test_fixes.py                         # 58 regression tests (one per audit bug + invariants)
 └── README.md
 ```
 
@@ -157,7 +158,7 @@ Measured by mutation testing (inject a plausible bug, give each curve an equal
    wall-clock. On secp256k1 the same event sits at `≈ 3.73e−39`, an expected wait
    of ~2.7e38 years. Bug B6 was findable *only* because this curve exists.
 3. **Speed.** ~8,810 sign/s and ~5,369 verify/s versus ~125 and ~58 on
-   secp256k1 (70× and 93×). 12 of the 27 regression tests run on it for that
+   secp256k1 (70× and 93×). 12 of the 58 regression tests run on it for that
    reason.
 
 The cost is real and worth stating: `mode` branching appears in ~10 places, the
@@ -348,44 +349,120 @@ BKZ. **A single wrong interval poisons the entire lattice** — the reduction th
 returns nothing.
 
 **The cost model** in `ecdsa_attack_complexity.py`. A signature is *clean* iff
-both assumed predictors are correct:
+both assumed predictors are correct. How the two are combined depends on how
+`p_m` is defined, and the two definitions must not be mixed:
 
 ```text
-p_clean = clamp( p_b·p_m + ρ·√(p_b(1−p_b)·p_m(1−p_m)),
-                 lo = max(0, p_b + p_m − 1),
-                 hi = min(p_b, p_m) )
+--p-mag-mode conditional  (default)
+    p_m is already conditioned on the leading digits being correct,
+    so the dependence is carried by the conditioning and ρ is forced to 0:
+        p_clean = p_b · p_m
+
+--p-mag-mode marginal
+    p_m is the marginal magnitude accuracy and ρ is the Pearson correlation
+    of the two Bernoulli indicators:
+        p_clean = clamp( p_b·p_m + ρ·√(p_b(1−p_b)·p_m(1−p_m)),
+                         lo = max(0, p_b + p_m − 1),          ┐ Fréchet–
+                         hi = min(p_b, p_m) )                 ┘ Hoeffding
 ```
 
-with `ρ = 0` meaning independence (default; conservative *for the attacker*),
-`ρ > 0` meaning the predictors fail together more often than chance. Then:
+Supplying both a conditional `p_m` and a non-zero ρ double-counts the
+dependence, so the CLI rejects it. The predictors are **not** independent: on
+this project's own simulated corpus, P(mag correct | pair correct) ≈ 0.902
+against P(mag correct | pair wrong) ≈ 0.770, which implies ρ ≈ **+0.126**.
+A positive ρ makes the attack *easier*, so ρ = 0 is the conservative choice —
+but it is an assumption, not a bound.
+
+Then, common to both modes:
 
 ```text
-m_req  = ⌈ ⌈curve_bits / L⌉ · safety_factor ⌉
-dim    = m_req + dim_overhead
-T_filt = ⌈ surplus · m_req / p_clean ⌉          usable pool
-T_raw  = ⌈ T_filt / pass_rate ⌉                 raw signatures to collect
-clean  = round(p_clean · T_filt)
-runs   = C(T_filt, m_req) / C(clean, m_req)     expected subsets until all-clean
-t/core = runs · t_per_run_sec / cores
+m_req = ⌈ ⌈log₂n / L⌉ · safety_factor ⌉
+dim   = m_req + dim_overhead
 ```
 
-The `runs` expression is the reciprocal of the probability that a uniformly
-drawn `m_req`-subset of the pool is entirely clean — the model is "keep drawing
-subsets until one contains no poisoned signature". Binomials are evaluated in
-log space via `lgamma` to avoid overflow. Parallelism is **linear and tight**:
-each reduction is independent, with no inter-core communication.
+**Signature supply is an explicit choice, not a hidden constant.** Earlier
+versions derived the pool from a `surplus` multiplier and then back-computed
+the raw-signature requirement, so scarcity never bound anything while `surplus`
+silently swung the answer across ~11 orders of magnitude. The flag is gone.
 
-Defaults: `curve_bits=256`, `leak_bits=[6]`, `safety_factor=1.3`, `surplus=2.0`,
-`p_mag=82.0`, `correlation=0.0`, `filter_pass_rate=1.0`, `dim_overhead=2`,
-`cores=[1, 8, 64]`.
+```text
+--supply unlimited  (default)      draws are i.i.d.
+    q = p_clean^m_req · p_succ
+
+--supply scarce --t-raw N          N = signatures available under the key d
+    P(clean | pass) = p_clean · recall / pass_rate          ← Bayes
+    T_filt          = ⌊ pass_rate · N ⌋
+    C               ~ Binomial(T_filt, P(clean | pass))
+    q               = C(C, m_req) / C(T_filt, m_req) · p_succ
+```
+
+`recall = P(pass | clean)` defaults to `pass_rate`, i.e. an **uninformative**
+filter that only shrinks the pool. Raising it above `pass_rate` models a filter
+that genuinely enriches the pool; the implied false-pass rate
+
+```text
+fpr = (pass_rate − p_clean·recall) / (1 − p_clean)
+```
+
+is derived and required to lie in `[0, 1]`, so inconsistent
+`(pass_rate, recall, p_clean)` triples are rejected rather than ignored.
+
+**The result is a distribution, not a point.** The number of reductions is
+geometric, and in scarce mode the pool composition `C` is itself random, so the
+model reports `p05 / p50 / p95` of `N` over the compound distribution instead of
+substituting `E[C]` into a convex function. That substitution is a Jensen error:
+for a 200-signature pool at `p_clean = 0.738` the 5–95% band spans roughly five
+orders of magnitude, and the true expectation is dominated by rare bad pools.
+
+**Reduction cost grows with lattice dimension.** With `--t-run-doubling-dims D`:
+
+```text
+t_run(dim) = t_per_run_sec · 2^((dim − dim_ref) / D)
+time       = N · t_run(dim) / cores
+```
+
+Omitting `D` keeps the flat placeholder, and in that case the tool prints an
+explicit warning that rows for different `L` are **not** comparable — a flat
+per-run cost charges `L = 4` (dim 86) exactly what it charges `L = 8` (dim 44),
+which inverts reality. Binomials are evaluated in log space via `lgamma`;
+survival probabilities are evaluated in log space too, because `q` routinely
+underflows float64. Parallelism is linear: each reduction is independent.
+
+<!-- defaults:begin -->
+Defaults (machine-checked by `test_F8_readme_defaults_match_the_parser`):
+`curve_bits=256`, `leak_bits=[6]`, `safety_factor=1.3`, `dim_overhead=2`,
+`p_mag=82.0`, `p_mag_mode=conditional`, `correlation=0.0`,
+`p_ml_start=80.0`, `p_ml_stop=99.0`, `p_ml_step=1.0`,
+`supply=unlimited`, `filter_pass_rate=1.0`, `p_reduction_success=1.0`,
+`t_per_run_sec=2.0`, `t_run_doubling_dims=None`, `cores=[1, 8, 64]`,
+`precision=orders`.
+<!-- defaults:end -->
 
 **`t_per_run_sec` is the single most important number in the model and it is not
-measured here.** If omitted, the model uses a flat `2.0` s-per-reduction
-placeholder (independent of dimension), so the reported wall-clock times are
-order-of-magnitude only and do not reflect how reduction cost actually grows
-with lattice dimension. Calibrate it on your own hardware and solver (build a
+measured here.** Calibrate it on your own hardware and solver — build a
 synthetic all-clean HNP instance of dimension `m_req + 2`, run one `fpylll`
-LLL/BKZ reduction, take wall-clock) and pass `--t-per-run-sec`.
+LLL/BKZ reduction, take wall-clock — then pass `--t-per-run-sec` together with
+`--t-run-dim-ref` and `--t-run-doubling-dims`. Without all three, wall-clock is
+order-of-magnitude only, which is why `--precision orders` is the default.
+
+#### 3.10.1 What the cost model still does not capture
+
+These are open gaps, not pending patches. Every one of them means the printed
+figures are **not** a bound in either direction:
+
+- **Confidence ranking is not modelled.** The model assumes a hard 0/1 label and
+  draws uniformly random `m_req`-subsets. A real classifier emits calibrated
+  scores, and an attacker would take the top-`m_req` most confident signatures,
+  whose purity far exceeds the average `p_clean`. That is strictly cheaper by an
+  unmodelled and potentially large factor, so the tables are **not** an upper
+  bound on attacker cost.
+- **`safety_factor` has no lattice-theoretic content.** `m_req · L ≥ log₂n` is
+  necessary, not sufficient; whether `d` is actually a short vector is a
+  determinant-versus-target-norm question (Gaussian heuristic, BKZ block size β)
+  that this model does not evaluate. The `1.3` multiplier is a fudge standing in
+  for that gap, and for small `L` (≲ 3) reduction fails regardless of `m_req`.
+- **`p_reduction_success` defaults to 1.0**, i.e. an all-clean subset is assumed
+  to yield `d` with certainty. It will not.
 
 **And the load-bearing caveat, restated:** `p_b` — the probability the nonce-bit
 oracle is right — is a swept input, not a capability anyone has demonstrated.
@@ -430,6 +507,12 @@ magnitude lookup. See §1 and §6.
 
 Evaluates the cost model of §3.10 across an accuracy sweep and optional
 `--leak-bits` values; prints a table per `L` and can emit CSV via `--csv`.
+Signature supply is selected with `--supply {unlimited,scarce}`; `scarce`
+additionally takes `--t-raw`, `--filter-pass-rate` and `--filter-recall`.
+Reported counts are the `p05 / p50 / p95` quantiles of the number of
+reductions, and wall-clock is order-of-magnitude unless `--precision full`.
+Key helpers: `joint_clean_probability`, `bayes_post_clean`,
+`log10_success_per_draw`, `runs_quantile`, `log10_t_run`, `min_raw_for_pool`.
 
 ---
 
@@ -470,12 +553,25 @@ python3 generate_transaction_list.py \
 python3 generate_transaction_list.py --curve-mode test --keys 3 \
         --tx-per-key 20 --seed 42 --outdir out
 
-# Cost model — default (uncalibrated) flat 2.0 s placeholder, order-of-magnitude only:
+# Cost model — unlimited signature supply, uncalibrated flat placeholder:
 python3 ecdsa_attack_complexity.py
 
-# Cost model — calibrated, several core counts, CSV out:
-python3 ecdsa_attack_complexity.py --t-per-run-sec 2.0 --cores 1 8 64 \
-        --leak-bits 4 6 8 --csv complexity.csv
+# Scarce supply: 200 signatures exist under the target key, blind 50% pre-filter
+python3 ecdsa_attack_complexity.py --supply scarce --t-raw 200 \
+        --filter-pass-rate 0.5
+
+# ... and with a pre-filter that actually enriches the pool (recall > pass rate)
+python3 ecdsa_attack_complexity.py --supply scarce --t-raw 500 \
+        --filter-pass-rate 0.9 --filter-recall 0.99
+
+# Marginal p_mag with the correlation measured on this project's corpus (§3.10)
+python3 ecdsa_attack_complexity.py --p-mag-mode marginal \
+        --p-mag 88.88 --correlation 0.126
+
+# Calibrated: cost scales with lattice dimension, so cross-L rows are comparable
+python3 ecdsa_attack_complexity.py --leak-bits 4 6 8 \
+        --t-per-run-sec 2.0 --t-run-dim-ref 58 --t-run-doubling-dims 12 \
+        --cores 1 8 64 --precision full --csv complexity.csv
 ```
 
 Key flags for `generate_transaction_list.py`: `--curve-mode {test,legacy}` (default
@@ -516,7 +612,7 @@ constructed to hit the target exactly.
 
 ## 7. Verified invariants
 
-Enforced by `tests/test_fixes.py` (27 tests, all passing):
+Enforced by `tests/test_fixes.py` (58 tests, all passing):
 
 - RFC 6979: 3/3 official secp256k1 + SHA-256 test vectors exercised by the suite.
 - RIPEMD-160 / HASH160: known-answer digests for `b"abc"` pinned, exercising the
@@ -531,8 +627,23 @@ Enforced by `tests/test_fixes.py` (27 tests, all passing):
 - Argument validation rejects out-of-range inputs on both entry points:
   `generate_transaction_list.py` (`--keys 0`, negative `--keys`, `--private-key`
   outside `[1, n-1]`, `--ml-exp-accuracy` outside `[0, 1]`, `--min-start-range ≥ n`)
-  and `ecdsa_attack_complexity.py` (non-positive `--surplus`, `--safety-factor`,
-  `--t-per-run-sec`, and negative `--dim-overhead`).
+  and `ecdsa_attack_complexity.py` (non-positive `--safety-factor`,
+  `--t-per-run-sec`, `--curve-bits`, `--leak-bits`, `--cores`, `--p-ml-step`
+  and `--t-run-doubling-dims`; negative `--dim-overhead`; `--p-mag` and
+  `--p-reduction-success` outside their ranges; `--correlation` outside
+  `[-1, 1]`).
+- Cost-model structure, under `test_F*` (§3.10): the unlimited-supply case
+  equals the i.i.d. limit `p_clean^m_req`; the Bayes filter leaves purity
+  unchanged when uninformative, raises it when informative, and rejects
+  inconsistent `(pass_rate, recall, p_clean)` triples; `--filter-pass-rate`
+  demonstrably reaches `runs`; per-run cost doubles every `D` dimensions and is
+  flat without `D`; `--p-reduction-success` enters the denominator; `p_clean`
+  never escapes the Fréchet–Hoeffding bounds over a 60-point grid; reported
+  quantiles are ordered and the median matches `ln2 / q` in closed form; a
+  fully clean pool (`q = 1`) does not raise; `--filter-recall` defaults to
+  uninformative; an undersized pool yields the required `T_raw` instead of a
+  bare `n/a`; and the README's declared defaults are diffed against the
+  parser.
 - The import-sensitive invocation modes (standalone from `ecurve/` and
   `python -m ecurve.…`) import and run, under `test_A3_*`.
 
@@ -550,7 +661,12 @@ Enforced by `tests/test_fixes.py` (27 tests, all passing):
 - `mode` branching appears in ~10 places; each is a site where the two curves can
   drift apart.
 - `maximum_transaction_count = (n−1)⁴` has no defined security meaning.
-- The cost model's `t_per_run_sec` is uncalibrated unless you pass it (§3.10).
+- The cost model's `t_per_run_sec` is uncalibrated unless you pass it, and the
+  dimension-scaling model is opt-in via `--t-run-doubling-dims`; without it,
+  rows for different `L` are not comparable and the tool says so (§3.10).
+- The cost model omits confidence ranking, has no lattice-theoretic content in
+  `safety_factor`, and assumes reductions on clean subsets always succeed. It is
+  therefore **not a bound in either direction** (§3.10.1).
 - **The predictor is simulated (§1).** This is not a code defect to be patched;
   it is the methodological boundary of the project.
 

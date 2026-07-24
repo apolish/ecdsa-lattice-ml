@@ -1,53 +1,59 @@
-================================================================================================
-ECDSA two-predictor subset-attack complexity
-================================================================================================
+============================================================================================
+ECDSA two-predictor subset-attack complexity  (v2, audited)
+============================================================================================
 
-Definition of a CLEAN signature:
-  • ML predictor correctly recovers the first two decimal digits of k
-  • Magnitude predictor (given those correct digits) recovers the true
-    decimal length of k
+CLEAN signature = leading-digit predictor correct AND magnitude
+predictor correct. One poisoned signature destroys the reduction.
 
-  p_b  = ML accuracy          (swept 80 … 99 %)
-  p_m  = magnitude accuracy   (82.00 %)  [conditioned on correct digits]
-  p_clean = p_b * p_m         (correlation p = +0.00)
+  p_clean = p_b * p_m          p_m = 82.00% [conditional; rho forced to 0]
+  m_req   = ceil(ceil(log2(n)/L) * safety_factor)
+  dim     = m_req + dim_overhead
+  q       = p_clean^m_req * p_succ           [unlimited supply]
+  N       ~ Geometric(q)  ->  p05 / p50 / p95 reported
+  t_run   = t0 * 2^((dim - dim_ref)/doubling_dims)
+  time    = N * t_run / cores
 
-Combinatorial model:
-  m_req   = ceil(ceil(curve_bits / L) * safety_factor)
-  T_filt  = ceil(surplus * m_req / p_clean)
-  clean   = round(p_clean * T_filt)
-  runs    = C(T_filt, m_req) / C(clean, m_req)
-  time    = runs * t_per_run_sec / cores
+order_bits (log2 n) = 256
+leak_bits (L)       = [6]
+safety_factor       = 1.3   [UNVALIDATED FUDGE]
+supply              = unlimited
+p_reduction_success = 1.0   [OPTIMISTIC: reduction assumed infallible]
+t_per_run_sec       = 2 s at dim first L's dim
+                      [FLAT -- cost does not grow with dimension, which is
+                       wrong; cross-L rows are NOT comparable]
+cores               = [1, 8, 64]
 
-curve_bits     = 256
-leak_bits (L)  = 6
-safety_factor  = 1.3
-surplus        = 2.0
-t_per_run_sec  = 2.0000 s   (calibrate per hardware; pass --t-per-run-sec)
-cores          = [1, 8, 64, 124]
-================================================================================================
+Unvalidated assumptions carried by every number below:
+  - p_b is an assumed oracle accuracy, not a measured capability (recovering it is a partial ECDLP)
+  - safety_factor is a fudge with no lattice-theoretic justification
+  - confidence ranking is not modelled; a real attacker would do better
+  - t_per_run_sec must be calibrated on your own hardware and solver
+============================================================================================
 
-  L = 6 bit   |   m_req = 56   |   dim = 58   |   t/run = 2.0000 s
+  L = 6 bit  |  m_req = 56  |  dim = 58  |  t/run = 2 s
 
-    p_ml%  p_clean   T_filt    T_raw   clean        runs          t@1c          t@8c         t@64c        t@124c
-  --------------------------------------------------------------------------------------------------------------
-       80  0.65600      171      171     112     1e13.18  968884.04 yr  121110.51 yr   15138.81 yr    7813.58 yr
-       81  0.66420      169      169     112     1e12.84  436947.71 yr   54618.46 yr    6827.31 yr    3523.77 yr
-       82  0.67240      167      167     112     1e12.49  194773.53 yr   24346.69 yr    3043.34 yr    1570.75 yr
-       83  0.68060      165      165     112     1e12.13   85786.91 yr   10723.36 yr    1340.42 yr     691.83 yr
-       84  0.68880      163      163     112     1e11.77   37320.16 yr    4665.02 yr     583.13 yr     300.97 yr
-       85  0.69700      161      161     112     1e11.40   16029.89 yr    2003.74 yr     250.47 yr     129.27 yr
-       86  0.70520      159      159     112     1e11.03    6795.28 yr     849.41 yr     106.18 yr      54.80 yr
-       87  0.71340      157      157     112     1e10.65    2841.78 yr     355.22 yr      44.40 yr      22.92 yr
-       88  0.72160      156      156     113     1e10.16     922.16 yr     115.27 yr      14.41 yr       7.44 yr
-       89  0.72980      154      154     112     1e10.07     748.50 yr      93.56 yr      11.70 yr       6.04 yr
-       90  0.73800      152      152     112      1e9.68     301.98 yr      37.75 yr       4.72 yr       2.44 yr
-       91  0.74620      151      151     113      1e9.18      96.21 yr      12.03 yr       1.50 yr       9.44 mo
-       92  0.75440      149      149     112      1e9.07      75.19 yr       9.40 yr       1.17 yr       7.38 mo
-       93  0.76260      147      147     112      1e8.66      29.17 yr       3.65 yr       5.55 mo       2.86 mo
-       94  0.77080      146      146     113      1e8.16       9.11 yr       1.14 yr       1.73 mo       26.82 d
-       95  0.77900      144      144     112      1e8.03       6.83 yr      10.39 mo       1.30 mo       20.11 d
-       96  0.78720      143      143     113      1e7.52       2.11 yr       3.20 mo       12.01 d        6.20 d
-       97  0.79540      141      141     112      1e7.38       1.54 yr       2.34 mo        8.78 d        4.53 d
-       98  0.80360      140      140     113      1e6.87       5.69 mo       21.35 d        2.67 d        1.38 d
-       99  0.81180      138      138     112      1e6.72       4.04 mo       15.16 d        1.90 d       23.48 h
-  --------------------------------------------------------------------------------------------------------------
+    p_ml%  p_clean     N p05     N p50     N p95     t@1c p50     t@8c p50    t@64c p50
+  -------------------------------------------------------------------------------------
+       80   0.6560     1e9.0    1e10.1    1e10.7     1e2.9 yr     1e2.0 yr        12 yr
+       81   0.6642     1e8.7     1e9.8    1e10.4     1e2.6 yr     1e1.7 yr         6 yr
+       82   0.6724     1e8.4     1e9.5    1e10.1     1e2.3 yr        25 yr         3 yr
+       83   0.6806     1e8.1     1e9.2     1e9.8     1e2.0 yr        13 yr         2 yr
+       84   0.6888     1e7.8     1e8.9     1e9.5     1e1.7 yr         6 yr        10 mo
+       85   0.6970     1e7.5     1e8.6     1e9.3        26 yr         3 yr         5 mo
+       86   0.7052     1e7.2     1e8.3     1e9.0        14 yr         2 yr         3 mo
+       87   0.7134     1e6.9     1e8.1     1e8.7         7 yr        11 mo         1 mo
+       88   0.7216     1e6.6     1e7.8     1e8.4         4 yr         6 mo         22 d
+       89   0.7298     1e6.4     1e7.5     1e8.1         2 yr         3 mo         11 d
+       90   0.7380     1e6.1     1e7.2     1e7.9         1 yr         2 mo          6 d
+       91   0.7462     1e5.8     1e7.0     1e7.6         7 mo         26 d          3 d
+       92   0.7544     1e5.6     1e6.7     1e7.3         4 mo         14 d          2 d
+       93   0.7626     1e5.3     1e6.4     1e7.1         2 mo          8 d         23 h
+       94   0.7708     1e5.0     1e6.2     1e6.8         1 mo          4 d         13 h
+       95   0.7790     1e4.8     1e5.9     1e6.6         19 d          2 d          7 h
+       96   0.7872     1e4.5     1e5.7     1e6.3         11 d          1 d          4 h
+       97   0.7954     1e4.3     1e5.4     1e6.0          6 d         18 h          2 h
+       98   0.8036     1e4.0     1e5.2     1e5.8          3 d         10 h          1 h
+       99   0.8118     1e3.8     1e4.9     1e5.5          2 d          6 h       42 min
+  -------------------------------------------------------------------------------------
+  Times are at the p50 of N. The p05-p95 band scales the times by
+  exactly the same factor as it scales N.
