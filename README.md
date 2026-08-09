@@ -688,13 +688,23 @@ Enforced by `tests/test_fixes.py` (58 tests, all passing):
 
 ---
 
-## 10. License
+## Author
 
-Released under MIT License (see LICENSE file).
+**Andriy Polishchuk** — CRYPTON Systems Lab
+📧 andriy.polishchuk.a@gmail.com
+
+*Independent researcher. CRYPTON Systems Lab is an independent research group and not an
+institutional affiliation.*
 
 ---
 
-## 11. Project on JIRA
+## License
+
+Released under the MIT License (see `LICENSE`).
+
+---
+
+## Project on JIRA
 
 Tracking and monitoring tasks related to the current project can be found here:
 
