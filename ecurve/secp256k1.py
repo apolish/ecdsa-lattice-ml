@@ -16,11 +16,23 @@ SIGNATURE TUPLE
 ``sign_message`` returns ``(z, r_x, r_y, s, k, k_inv)`` where:
   * ``r_x`` is ``(k*G).x mod n``  -- the ECDSA r value, reduced mod n by spec
   * ``r_y`` is ``(k*G).y mod p``  -- the RAW affine coordinate, NOT reduced
+  * ``s`` is the ECDSA s value, reduced mod n by spec
+  * ``k`` is the ephemeral nonce, which is normally secret and never returned
 
-FIX B6: the original reduced ``r_y`` mod n. That is meaningless (y lives mod
-p) and silently corrupted the coordinate whenever y >= n. On TEST_PARAMS
-(p - n = 59376) this fired about once in 21,000 signatures; the smallest
-witnesses (y >= n, so ``y % n != y % p``) are k=12524 and k=18152.
+PUBLIC-ONLY HELPERS
+===================
+``recover_x_from_s_zk`` and ``Secp256k1.verify_x_candidate`` operate on
+``(z, r, s)`` only.  They take a *guess* for ``s_zk = z*k^-1 mod n`` and turn
+it into a private-key candidate, then confirm or reject that candidate on the
+curve.  No secret input is consumed by either function; ``verify_x_candidate``
+is what makes a guess into a proven key rather than an unchecked one.
+
+RANDOMNESS
+==========
+``Secp256k1`` takes an optional ``rng``.  It defaults to
+``random.SystemRandom()`` so that statistics gathered in "test" mode are not
+contaminated by the linear structure of MT19937.  Pass ``random.Random(seed)``
+explicitly when a reproducible run is wanted.
 """
 from __future__ import annotations
 
@@ -53,15 +65,14 @@ class CurveParams:
     g: Tuple[int, int]
     n: int
 
-
 TEST_PARAMS = CurveParams(
-    name="toy-p31r1",
+    name="secp17k1",
     mode="test",
-    p=1_241_690_119,
-    a=1,
-    b=35,
-    g=(311_072_572, 523_565_415),
-    n=1_241_630_743,
+    p=100003,
+    a=0,
+    b=2,
+    g=(20002, 57568),
+    n=99667
 )
 
 LEGACY_PARAMS = CurveParams(
@@ -91,21 +102,21 @@ def encode_varint(i: int) -> bytes:
     return b"\xff" + i.to_bytes(8, "little")
 
 
-def compress_public_key(pub: Tuple[int, int]) -> bytes:
-    """Return compressed SEC representation of a public key (33 bytes)."""
+def compress_public_key(pub: Tuple[int, int], field_bytes: int = 32) -> bytes:
+    """Return compressed SEC representation of a public key.
+
+    ``field_bytes`` is the byte length of the coordinate field; 32 for
+    secp256k1.  The original code hardcoded 32, which silently produced a
+    malformed encoding for any curve with a different field size and would
+    raise ``OverflowError`` for a larger one.
+    """
     x, y = pub
     prefix = 0x02 | (y & 1)
-    return bytes([prefix]) + x.to_bytes(32, "big")
+    return bytes([prefix]) + x.to_bytes(field_bytes, "big")
 
 
 def hash160(data: bytes) -> bytes:
-    """RIPEMD160(SHA256(data)) - Bitcoin HASH160.
-
-    FIX C12: OpenSSL 3.x moved RIPEMD-160 to the legacy provider, so
-    ``hashlib.new("ripemd160")`` raises ``ValueError: unsupported hash type``
-    on many distributions. Fall back to the bundled pure-Python
-    implementation instead of crashing.
-    """
+    """RIPEMD160(SHA256(data)) - Bitcoin HASH160."""
     sha = hashlib.sha256(data).digest()
     try:
         return hashlib.new("ripemd160", sha).digest()
@@ -125,7 +136,7 @@ def make_bitcoin_legacy_sighash_message(
     Parameters
     ----------
     public_key : Tuple[int, int]
-        Uncompressed (x, y) public key of the signer.
+        Public key (x, y) of the signer; it is compressed internally.
     prev_txid : bytes
         32-byte txid of the UTXO being spent (little-endian, per protocol).
     prev_index : int
@@ -228,7 +239,7 @@ def make_bitcoin_segwit_sighash_message(
     Parameters
     ----------
     public_key : Tuple[int, int]
-        Uncompressed (x, y) public key of the signer.
+        Public key (x, y) of the signer; it is compressed internally.
     prev_txid : bytes
         32-byte txid of the UTXO being spent (little-endian, per protocol).
     prev_index : int
@@ -307,37 +318,104 @@ def make_bitcoin_segwit_sighash_message(
     return preimage
 
 
-def int_to_bytes(value: int, byteorder: str = 'big') -> bytes:
-    """
-    Convert an integer to bytes with the minimum required length.
+# ======================================================================
+# PUBLIC-ONLY ECDSA RELATIONS
+# ======================================================================
+def inverse_mod_safe(k: int, m: int) -> Optional[int]:
+    """Modular inverse, or ``None`` when ``k`` is not invertible mod ``m``."""
+    try:
+        return pow(k, -1, m)
+    except ValueError:
+        return None
 
-    :param value: Integer to convert.
-    :param byteorder: 'big' or 'little' endian.
-    :return: Bytes representation of the integer.
-    """
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise TypeError("Value must be an integer.")
-    if value < 0:
-        raise ValueError("Value must be non-negative.")
-    if byteorder not in ('big', 'little'):
-        raise ValueError("byteorder must be 'big' or 'little'.")
 
-    # Handle zero explicitly (bit_length() would return 0)
-    length = max(1, (value.bit_length() + 7) // 8)
-    return value.to_bytes(length, byteorder)
+def mod_sqrt_all(a: int, p: int) -> list[int]:
+    """All square roots of ``a`` modulo the odd prime ``p``.
+
+    Returns ``[]`` when ``a`` is a quadratic non-residue.  Replaces the former
+    ``sympy.sqrt_mod`` dependency, which was undeclared and pulled in for this
+    single call.  Uses the p % 4 == 3 shortcut where available (the test curve)
+    and Tonelli-Shanks otherwise (secp256k1, where n % 4 == 1).
+    """
+    a %= p
+    if p == 2:
+        return [a]
+    if a == 0:
+        return [0]
+    if pow(a, (p - 1) // 2, p) != 1:
+        return []
+
+    if p % 4 == 3:
+        r = pow(a, (p + 1) // 4, p)
+        return sorted({r, p - r})
+
+    q, s = p - 1, 0
+    while q % 2 == 0:
+        q //= 2
+        s += 1
+
+    z = 2
+    while pow(z, (p - 1) // 2, p) != p - 1:
+        z += 1
+
+    m, c = s, pow(z, q, p)
+    t, r = pow(a, q, p), pow(a, (q + 1) // 2, p)
+    while t != 1:
+        i, t2 = 0, t
+        while t2 != 1:
+            t2 = t2 * t2 % p
+            i += 1
+        b = pow(c, 1 << (m - i - 1), p)
+        m, c = i, b * b % p
+        t = t * c % p
+        r = r * b % p
+    return sorted({r, p - r})
+
+
+def recover_x_from_s_zk(s_zk: int, s: int, z: int, r: int, n: int) -> Optional[int]:
+    """Turn a guess for ``s_zk = z*k^-1 mod n`` into a private-key candidate.
+
+    From the signature identity ``s = (z + r*x) * k^-1``:
+
+        s_rxk = s - s_zk           = r*x*k^-1
+        k^-1  = s_zk * z^-1
+        x     = z*(s - s_zk) * (r*s_zk)^-1   (mod n)
+
+    Every input is public.  Returns ``None`` when the denominator is not
+    invertible.  This is the single primitive behind every case-A/B/E
+    recovery; the original code re-derived it three times, once with ``k`` as
+    the name of a variable that actually held ``k^-1``.
+    """
+    den_inv = inverse_mod_safe((r * s_zk) % n, n)
+    if den_inv is None:
+        return None
+    return (z % n) * ((s - s_zk) % n) % n * den_inv % n
 
 
 class Secp256k1:
     """Elliptic curve cryptography implementation for secp256k1."""
 
-    def __init__(self, params: CurveParams):
-        """Initialize curve with given parameters."""
+    def __init__(self, params: CurveParams, rng: Optional[random.Random] = None):
+        """Initialize curve with given parameters.
+
+        ``rng`` supplies the randomness used by "test" mode for z and k.  It
+        defaults to ``random.SystemRandom()``: the previous code used the
+        module-level ``random``, i.e. MT19937, whose known linear structure
+        is a poor foundation for statistics about "hidden structure" in the
+        resulting triples.  Pass ``random.Random(seed)`` for reproducibility.
+        """
         self._curve = params
+        self._rng = rng if rng is not None else random.SystemRandom()
 
     @property
     def curve(self) -> CurveParams:
         """Return elliptic curve parameters."""
         return self._curve
+
+    @property
+    def rng(self) -> random.Random:
+        """Return the random source used by test-mode signing."""
+        return self._rng
 
     # ------------------------------------------------------------------
     # RFC 6979 (deterministic nonce)
@@ -357,31 +435,7 @@ class Secp256k1:
         return value.to_bytes(rolen, "big")
 
     def _rfc6979_k_candidates(self, private_key: int, z: int) -> Iterator[int]:
-        """Yield RFC 6979 nonce candidates, in specification order.
-
-        FIX E21: the original computed ``int.from_bytes(v, "big") % n``. RFC
-        6979 section 3.2 step h.3 mandates ``bits2int(T)`` followed by
-        REJECTION of out-of-range candidates, never a modular reduction. The
-        original also never performed the ``K = HMAC(K, V || 0x00); V =
-        HMAC(K, V)`` update on rejection, so its ladder diverged from the
-        standard. Consequence of both: signatures did not reproduce
-        libsecp256k1 / bitcoin-core output, and the reduction introduced a
-        (tiny, ~2^-128, but real) modulo bias -- the exact class of nonce bias
-        this project purports to study.
-
-        FIX C10: exposing candidates as a generator also removes the infinite
-        loop in ``sign_message``. RFC 6979 is deterministic in (d, z), so the
-        original's ``continue`` re-derived the SAME k forever whenever a
-        candidate failed a caller-side check. Advancing the ladder yields a
-        genuinely different candidate, which is precisely the mechanism RFC
-        6979 section 3.6 prescribes for retries.
-
-        Note on ``bits2octets``: for secp256k1, ``z`` as produced by
-        ``hash_message`` (int(H(m)) mod n) is already equal to
-        ``bits2octets(H(m))``, because 2^255 < n < 2^256 implies H(m) < 2n, so
-        the spec's conditional subtraction and the modular reduction coincide.
-        Passing the reduced z is therefore RFC-correct here.
-        """
+        """Yield RFC 6979 nonce candidates, in specification order."""
         n = self._curve.n
         qlen = n.bit_length()
         holen = hashlib.sha256().digest_size
@@ -416,12 +470,7 @@ class Secp256k1:
         return next(self._rfc6979_k_candidates(private_key, z))
 
     def _generate_private_key(self) -> int:
-        """Generate a random private key within the valid range.
-
-        FIX: uses ``secrets`` rather than raw ``os.urandom`` framing; both are
-        CSPRNG-backed, but rejection sampling below is kept explicit so the
-        distribution is provably uniform on [1, n-1] with no modulo bias.
-        """
+        """Generate a random private key within the valid range."""
         while True:
             private_key = secrets.randbits(self._curve.n.bit_length())
             if 1 <= private_key < self._curve.n:
@@ -474,17 +523,7 @@ class Secp256k1:
         return x3, y3
 
     def scalar_multiply(self, k: int, p: Point) -> Point:
-        """Perform scalar multiplication of a point by integer k.
-
-        Returns ``None`` for the point at infinity.
-
-        FIX E14: the original returned the sentinel ``(0, 0)`` when the
-        accumulator was not a 2-tuple. ``(0, 0)`` is on neither curve
-        (b != 0), so it silently propagated as a bogus "valid-looking" point.
-
-        FIX E19: the original doubled ``p`` once more after consuming the
-        final bit of k -- one wasted point operation per call.
-        """
+        """Perform scalar multiplication of a point by integer k."""
         if p is None:
             return None
         if k % self._curve.n == 0:
@@ -517,7 +556,7 @@ class Secp256k1:
             raise ValueError("private key maps to the point at infinity")
         return private_key, public_key
 
-    def hash_message(self, message: bytes) -> int:
+    def hash_message(self, message: bytes, min_start_range: int) -> int:
         """Return integer hash of a message modulo curve order.
 
         NOTE: in "test" mode z is randomised and NOT bound to the message.
@@ -525,18 +564,25 @@ class Secp256k1:
         signing oracle. Kept as-is; see README.
         """
         if self._curve.mode == "test":
-            return random.randrange(1, self._curve.n - 1)
+            return self._rng.randrange(min_start_range, self._curve.n - 1)
         # legacy / real secp256k1: use Bitcoin-style double SHA256
         digest = hashlib.sha256(hashlib.sha256(message).digest()).digest()
         return int.from_bytes(digest, "big") % self._curve.n
 
     def _k_candidates(self, private_key: int, z: int, min_start_range: int) -> Iterator[int]:
-        """Yield nonce candidates appropriate for the curve mode."""
+        """Yield nonce candidates appropriate for the curve mode.
+
+        ``min_start_range`` applies to test mode only.  The original code
+        applied it as a post-filter over the RFC 6979 stream as well, which is
+        a silent deviation from the specification: a conforming verifier
+        derives the first in-range candidate, not the first candidate above an
+        arbitrary floor.  It never fired at 256 bits, but it was wrong.
+        """
         if self._curve.mode == "legacy":
             yield from self._rfc6979_k_candidates(private_key, z)
         else:
             while True:
-                yield random.randrange(min_start_range, self._curve.n - 1)
+                yield self._rng.randrange(min_start_range, self._curve.n - 1)
 
     def sign_message(
         self,
@@ -544,26 +590,16 @@ class Secp256k1:
         message: bytes,
         min_start_range: int = 1,
     ) -> Tuple[int, int, int, int, int, int]:
-        """Create ECDSA signature for a message using private key.
-
-        Returns ``(z, r_x, r_y, s, k, k_inv)``.
-
-        FIX A2: ``min_start_range`` now has a default, so callers that omit it
-        (``_print_once_demo``) no longer raise TypeError.
-        FIX B6: ``r_y`` is returned unreduced (mod p), not mod n.
-        FIX C10: candidates come from a generator, so rejecting one advances
-        to a different value instead of looping forever on the deterministic
-        RFC 6979 output.
-        """
+        """Create ECDSA signature for a message using private key."""
         if not 1 <= private_key < self._curve.n:
             raise ValueError(f"private key must be in [1, n-1]; got {private_key}")
-        if min_start_range < 1:
-            raise ValueError("min_start_range must be >= 1")
+        if not 1 <= min_start_range < self._curve.n - 1:
+            raise ValueError(
+                f"min_start_range must be in [1, n-2]; got {min_start_range}"
+            )
 
-        z = self.hash_message(message)
+        z = self.hash_message(message, min_start_range)
         for k in self._k_candidates(private_key, z, min_start_range):
-            if k < min_start_range:
-                continue
             point = self.scalar_multiply(k, self._curve.g)
             if point is None:
                 continue
@@ -578,16 +614,40 @@ class Secp256k1:
                 return z, r_x, r_y, s, k, k_inv
         raise RuntimeError("nonce candidate stream exhausted")  # unreachable
 
-    def verify_signature(self, public_key: Tuple[int, int], signature: Tuple[int, int, int, int, int, int]) -> bool:
-        """Verify ECDSA signature against a given public key.
+    def verify_x_candidate(self, x: int, z: int, r: int, s: int) -> bool:
+        """Confirm a private-key candidate using public data only.
 
-        FIX C8: the original did ``x, _ = self.point_add(p1, p2)`` and only
-        THEN tested ``if x is None``. ``point_add`` returns ``None`` (not a
-        tuple) for the point at infinity, so the unpack raised TypeError
-        before the guard could run. Reachable whenever u1*G == -(u2*Q).
+        For a genuine key, ``k = (z + r*x) * s^-1`` must reproduce the very r
+        that was signed, i.e. ``(k*G).x mod n == r``.  Nothing secret is used.
+
+        This is the step the original pipeline was missing: candidates were
+        printed as ``d_recovered`` without ever being checked, so a guess that
+        happened to be wrong was reported exactly like one that was right.
         """
+        n = self._curve.n
+        if not 1 <= x < n:
+            return False
+        if not (1 <= r < n and 1 <= s < n):
+            return False
+        s_inv = inverse_mod_safe(s, n)
+        if s_inv is None:
+            return False
+        k = ((z + r * x) % n) * s_inv % n
+        if k == 0:
+            return False
+        point = self.scalar_multiply(k, self._curve.g)
+        return point is not None and point[0] % n == r
+
+    def verify_signature(self, public_key: Tuple[int, int], signature: Tuple[int, int, int, int, int, int]) -> bool:
+        """Verify ECDSA signature against a given public key."""
         z, r, _, s, _, _ = signature
         if not (1 <= r < self._curve.n and 1 <= s < self._curve.n):
+            return False
+        # The original skipped public-key validation entirely and would happily
+        # "verify" against a point that is not on the curve.
+        if public_key is None or not self.is_on_curve(public_key):
+            return False
+        if self.scalar_multiply(self._curve.n, public_key) is not None:
             return False
         w = self.inverse_mod(s, self._curve.n)
         u1 = (z * w) % self._curve.n
@@ -609,12 +669,7 @@ class Secp256k1:
         return x, (-y) % mod_p
 
     def generate_unique_keys(self, count: int, min_start_range: int) -> list[int]:
-        """Generate a list of unique random integers within a specified range.
-
-        FIX E18: the original returned ``list(seen)`` straight off a set, so
-        ordering varied run to run and results were not reproducible. It also
-        looped forever when ``count`` exceeded the number of available values.
-        """
+        """Generate a list of unique random integers within a specified range."""
         if count < 0:
             raise ValueError("count must be non-negative")
         if min_start_range < 1:
@@ -700,7 +755,7 @@ def main() -> None:
     print("============================================================")
     print("")
     print("=========== TEST CURVE ===========")
-    d = 1180926333
+    d = 99661
     print_curve_run(curve=TEST_PARAMS, private_key=d)
 
     print("========== LEGACY CURVE ==========")

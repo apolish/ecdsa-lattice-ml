@@ -120,14 +120,32 @@ def predict_magnitude(first_two_digits, curve_n: int) -> Prediction:
     FIX E16: these examples previously omitted the required ``curve_n``
     argument and failed 2 of 4 doctests.
 
+    On real secp256k1 (``n`` has 78 digits and begins "11"), most leading
+    pairs land below ``n`` only at 77 digits:
+
     >>> predict_magnitude(47, LEGACY_PARAMS.n)
     Prediction(magnitude=77, probability=0.9)
     >>> predict_magnitude(10, LEGACY_PARAMS.n).magnitude
     78
+
+    The TEST_PARAMS results below are tied to the *current* test curve and
+    must be updated whenever it changes -- they are documentation of shipped
+    behaviour, not curve-independent facts. ``secp17k1`` has ``n = 99667``,
+    which begins "99", so every leading pair fits at full width:
+
     >>> predict_magnitude(47, TEST_PARAMS.n).magnitude
-    9
-    >>> predict_magnitude(10, TEST_PARAMS.n).magnitude
-    10
+    5
+    >>> predict_magnitude(99, TEST_PARAMS.n).magnitude
+    5
+
+    What *is* curve-independent is the shape: the predictor is essentially a
+    constant function, so one magnitude dominates almost every leading pair.
+
+    >>> from collections import Counter
+    >>> counts = Counter(predict_magnitude(lead, TEST_PARAMS.n).magnitude
+    ...                  for lead in range(10, 100))
+    >>> counts.most_common(1)[0][1] >= 88
+    True
     """
     dist = magnitude_distribution(first_two_digits, curve_n)
     best = max(dist, key=dist.get)

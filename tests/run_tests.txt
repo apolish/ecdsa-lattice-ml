@@ -1,0 +1,128 @@
+
+  ================================================================================
+  ECDSA lattice ML  --  regression suite
+  curves: secp17k1 (17-bit)  |  secp256k1 (256-bit)  |  python 3.14.4
+  ================================================================================
+
+  Package surface and re-exports
+  --------------------------------------------------------------------------------
+    1  H1    every name in all resolves ...................... PASS       0.0 ms
+    2  H2    reexports are the same objects .................. PASS       0.0 ms
+    3  H3    init import list matches the modules ............ PASS      12.7 ms
+    4  H4    all entries are sorted into the import list ..... PASS       3.9 ms
+    5  H5    version is declared ............................. PASS       0.1 ms
+
+  Curve parameters and structural invariants
+  --------------------------------------------------------------------------------
+    6  G10   is on curve rejects off curve points ............ PASS       0.1 ms
+    7  G11   verify validates key before touching arithmetic . PASS       0.1 ms
+    8  G12   verify rejects tampered signature ............... PASS       0.2 ms
+    9  G13   equivalent mutants are documented ............... PASS       1.0 ms
+   10  G1    generator lies on curve ......................... PASS       0.0 ms
+   11  G2    order annihilates generator ..................... PASS       0.0 ms
+   12  G3    order is prime .................................. PASS       0.9 ms
+   13  G4    field is prime .................................. PASS       1.0 ms
+   14  G5    curve is non singular ........................... PASS       0.0 ms
+   15  G6    hasse bound holds ............................... PASS       0.0 ms
+   16  G7    generator inverse is consistent ................. PASS       6.1 ms
+   17  G8    coordinate overflow is reachable on test curve .. PASS       0.0 ms
+   18  G9    doubling exercises the a coefficient ............ PASS       0.2 ms
+   19  G9b   shipped curves still leave the a term untested .. PASS       0.0 ms
+
+  ECDSA signing, verification and nonces
+  --------------------------------------------------------------------------------
+   20  B6    ry not reduced mod n ............................ PASS     299.4 ms
+   21  C10   candidate stream advances ....................... PASS       0.1 ms
+   22  C12   hash160 ......................................... PASS       0.0 ms
+   23  C8    point add inverse returns none .................. PASS       0.0 ms
+   24  C8    verify infinity no crash ........................ PASS       0.1 ms
+   25  E14   scalar mult infinity is none .................... PASS       0.0 ms
+   26  E18   unique keys bounded ............................. PASS       0.1 ms
+   27  -     pubkey on curve ................................. PASS     138.1 ms
+   28  -     rfc6979 official vectors ........................ PASS       0.1 ms
+   29  -     sign verify roundtrip legacy .................... PASS      59.5 ms
+   30  -     sign verify roundtrip test curve ................ PASS       3.9 ms
+
+  Import layout and invocation modes
+  --------------------------------------------------------------------------------
+   31  A1    package imports ................................. PASS       0.0 ms
+   32  A3    module mode from root ........................... PASS      68.6 ms
+   33  A3    ripemd160 fallback importable both ways ......... PASS      13.9 ms
+   34  A3    standalone k magnitude from inside package dir .. PASS      57.7 ms
+   35  A3    standalone secp256k1 from inside package dir .... PASS      43.6 ms
+
+  Transaction generator and report
+  --------------------------------------------------------------------------------
+   36  A2    demo runs ....................................... PASS       0.2 ms
+   37  B3    accuracy denominator ............................ PASS       0.5 ms
+   38  B3b   denominator survives skipped rows ............... PASS       0.4 ms
+   39  D     generator rejects bad args ...................... PASS       1.9 ms
+
+  Magnitude predictor
+  --------------------------------------------------------------------------------
+   40  C11   single digit message ............................ PASS       0.0 ms
+   41  E16   doctests ........................................ PASS      42.2 ms
+   42  E21   distribution conditioned sums to one ............ PASS       0.2 ms
+   43  E21b  predictor is effectively constant ............... PASS      10.0 ms
+
+  Cost model: core formulas and validation
+  --------------------------------------------------------------------------------
+   44  B4    duration years .................................. PASS       0.1 ms
+   45  B4b   duration precision is optional .................. PASS       0.0 ms
+   46  B5    t per run sec default placeholder ............... PASS       0.4 ms
+   47  B7    m req formula ................................... PASS       0.1 ms
+   48  D     complexity rejects bad args ..................... PASS       6.6 ms
+
+  Cost model: signature supply (F1)
+  --------------------------------------------------------------------------------
+   49  F1    pool params rejected without scarce supply ...... PASS       1.1 ms
+   50  F1    scarce supply requires t raw .................... PASS       0.4 ms
+   51  F1    surplus flag removed with explanation ........... PASS       0.4 ms
+   52  F1    unlimited supply is the iid limit ............... PASS       0.0 ms
+
+  Cost model: Bayesian pre-filter (F2)
+  --------------------------------------------------------------------------------
+   53  F2    filter pass rate actually changes the answer .... PASS      24.3 ms
+   54  F2    implied false pass rate obeys total probability . PASS       0.0 ms
+   55  F2    inconsistent filter is rejected ................. PASS       0.0 ms
+   56  F2    informative filter raises purity ................ PASS       0.0 ms
+   57  F2    uninformative filter leaves purity unchanged .... PASS       0.0 ms
+
+  Cost model: dimension and reduction success (F3, F4)
+  --------------------------------------------------------------------------------
+   58  F3    dimension is load bearing ....................... PASS       0.9 ms
+   59  F3    flat model warns against cross L comparison ..... PASS       0.9 ms
+   60  F3    t run doubles every D dimensions ................ PASS       0.0 ms
+   61  F3    t run flat without doubling dims ................ PASS       0.0 ms
+   62  F4    p reduction success enters the denominator ...... PASS       0.0 ms
+
+  Cost model: p_m parameterisation (F5)
+  --------------------------------------------------------------------------------
+   63  F5    correlation rejected in conditional mode ........ PASS       0.5 ms
+   64  F5    marginal mode accepts correlation ............... PASS       0.3 ms
+   65  F5    p clean always within frechet bounds ............ PASS       0.3 ms
+   66  F5    positive correlation raises p clean ............. PASS       0.0 ms
+
+  Cost model: output distribution (F6)
+  --------------------------------------------------------------------------------
+   67  F6    geometric band width is exact ................... PASS       0.1 ms
+   68  F6    median matches closed form ...................... PASS       0.1 ms
+   69  F6    quantiles are ordered ........................... PASS       0.2 ms
+   70  F6    scarce pool band is wider than iid .............. PASS       9.8 ms
+
+  Cost model: reporting and hygiene (F7, F8)
+  --------------------------------------------------------------------------------
+   71  F7    default precision is orders ..................... PASS       0.2 ms
+   72  F7    unvalidated assumptions are printed ............. PASS       0.5 ms
+   73  F8    accuracy sweep grid does not drift .............. PASS       0.2 ms
+   74  F8    filter recall defaults to uninformative ......... PASS       9.7 ms
+   75  F8    fully clean pool does not raise ................. PASS       1.1 ms
+   76  F8    legend reports every swept L .................... PASS       0.9 ms
+   77  F8    readme defaults match the parser ................ PASS       2.8 ms
+   78  F8    undersized pool gives actionable advice ......... PASS       0.4 ms
+
+  ================================================================================
+  total 78   PASS 78   FAIL 0      wall 0.83 s
+  ALL GREEN
+  ================================================================================
+

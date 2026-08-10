@@ -16,7 +16,7 @@ Read this section before interpreting any number this project prints.
 
 - Implements the elliptic-curve group law, key generation, ECDSA signing and
   verification, and RFC 6979 deterministic nonces, from scratch, on two
-  parameter sets: real secp256k1, and `toy-p31r1`, a 31-bit fixture curve (§3.3.1).
+  parameter sets: real secp256k1, and `secp17k1`, a 17-bit fixture curve (§3.3.1).
 - Computes the exact conditional distribution of a nonce's decimal length given
   its first two decimal digits.
 - Evaluates a cost model for a two-predictor subset HNP lattice attack under an
@@ -63,12 +63,13 @@ ecdsa_lattice_ml/
 ├── lattice/
 ├── models/
 ├── tests/
-│   └── test_fixes.py                         # 58 regression tests (one per audit bug + invariants)
+│   └── run_tests.py                          # 78 regression tests + table runner (§7)
 └── README.md
 ```
 
 Dependency footprint: **Python 3.10+ standard library only.** No third-party
-packages are required or used.
+packages are required or used. The suite is built on `unittest`, so `pytest` is
+optional and only changes the presentation.
 
 ---
 
@@ -114,56 +115,84 @@ Defined in `ecurve/secp256k1.py` as frozen `CurveParams` dataclasses.
 
 | Field | `TEST_PARAMS` | `LEGACY_PARAMS` |
 | --- | --- | --- |
-| `name` | `toy-p31r1` | `secp256k1` |
+| `name` | `secp17k1` | `secp256k1` |
 | `mode` | `test` | `legacy` |
-| `p` | `1241690119` (31 bits) | `2²⁵⁶ − 2³² − 977` (256 bits) |
-| `a`, `b` | `1`, `35` | `0`, `7` |
-| `n` | `1241630743` (prime, 31 bits) | secp256k1 order (prime, 256 bits) |
-| `p − n` | `59376` | `4.32e38` |
+| `p` | `100003` (17 bits) | `2²⁵⁶ − 2³² − 977` (256 bits) |
+| `a`, `b` | `0`, `2` | `0`, `7` |
+| `n` | `99667` (prime, 17 bits) | secp256k1 order (prime, 256 bits) |
+| `p − n` | `336` | `4.32e38` |
+| Frobenius trace `t = p + 1 − n` | `337` (Hasse bound `2√p = 632`) | `4.32e38` (bound `6.81e38`) |
 | Nonce source | `random.randrange` | RFC 6979 |
 | Message hash | randomised (see below) | double-SHA256 of a Bitcoin sighash preimage |
 
-**Verified invariants** (all checked in `tests/test_fixes.py`): `G` lies on the
-curve, `n·G = O`, `n` is prime, and the Frobenius trace `t = p + 1 − n = 59377`
-satisfies the Hasse bound `|t| ≤ 2√p ≈ 70474` for the toy curve.
+**Verified invariants.** `G` lies on the curve, `n·G = O`, `(n−1)·G = −G`, `n`
+and `p` are prime (Miller-Rabin — trial division cannot reach a 256-bit order),
+the curve is non-singular (`4a³ + 27b² ≠ 0`), and the Hasse bound holds. These
+run on **both** parameter sets under `test_G1` … `test_G7`.
 
-**On the name `toy-p31r1`.** It follows SEC nomenclature: prime field, 31 bits,
-`r` for a verifiably-random (non-Koblitz) curve, first of its kind. The `r` is
-load-bearing — Koblitz curves are the `a = 0` family that secp256k1 belongs to,
-and this curve's `a = 1` is exactly what earns it its keep (see below).
+They are listed here because an earlier revision of this README claimed they
+were "all checked in tests/" when **none of them were**: the suite tested
+behaviour built on the curve without ever checking the curve itself. That gap
+went unnoticed until `TEST_PARAMS` was swapped — precisely the event where it
+matters.
+
 `LEGACY_PARAMS` is the only real secp256k1 here; nothing in the code branches on
-`name`, which appears solely in report headers.
+`name`, which appears solely in report headers. `mode` — not `name` — is what
+selects behaviour throughout the codebase.
 
-`mode` — not `name` — is what selects behaviour throughout the codebase.
+#### 3.3.1 Why the test curve exists
 
-#### 3.3.1 Why the toy curve exists
+It is a **test fixture**, not an alternative research target. Measured by
+mutation testing (inject a plausible bug, run the suite, see which tests
+notice):
 
-It is a **test fixture**, not an alternative research target. It earns its place
-by catching two classes of defect that secp256k1 **structurally cannot**.
-Measured by mutation testing (inject a plausible bug, give each curve an equal
-~0.4 s budget, see which notices):
+| Injected defect | `secp17k1` | `toy-a1p17` (§3.3.2) | `secp256k1` |
+| --- | --- | --- | --- |
+| `r_y = y % n` (the real bug B6) | **caught** | — | **never caught** |
+| Drop `x₂` from `x₃ = λ² − x₁ − x₂` | caught | caught | caught |
+| Drop `+ a` from the doubling slope | **never caught** | **caught** | **never caught** |
 
-| Injected defect | `toy-p31r1` | `secp256k1` |
-| --- | --- | --- |
-| Drop `+ a` from the doubling slope | **caught** | **never caught** |
-| `r_y = y % n` (the real bug B6) | **caught** | **never caught** |
-| Drop `x₂` from `x₃ = λ² − x₁ − x₂` | caught | caught |
-
-1. **The `a` blind spot is permanent, not probabilistic.** secp256k1 has
-   `a = 0`, so `3x² + a` is identically `3x²`. Any defect in handling `a` is
-   invisible on the real curve *no matter how many trials you run*. `toy-p31r1`
-   has `a = 1` and is the only thing in this repository exercising that term.
-2. **The `p − n` gap makes coordinate bugs reachable.** With `p − n = 59376`,
-   `P(coordinate ≥ n) ≈ 4.78e−5` — about 1 in 20,912 signatures, i.e. seconds of
-   wall-clock. On secp256k1 the same event sits at `≈ 3.73e−39`, an expected wait
-   of ~2.7e38 years. Bug B6 was findable *only* because this curve exists.
-3. **Speed.** ~8,810 sign/s and ~5,369 verify/s versus ~125 and ~58 on
-   secp256k1 (70× and 93×). 12 of the 58 regression tests run on it for that
-   reason.
+1. **The `p − n` gap makes coordinate bugs reachable.** With `p − n = 336`,
+   `P(coordinate ≥ n) ≈ 3.36e−3` — about 1 in 298 signatures, so `test_B6` now
+   *requires* the event rather than hoping for it: 5000 signatures miss it with
+   probability ≈ 5e−8. On secp256k1 the same event sits at `≈ 3.73e−39`, an
+   expected wait of ~7e28 years at the measured signing rate. Bug B6 was
+   findable *only* because a small curve exists.
+2. **Speed.** ~26,800 sign/s and ~16,800 verify/s versus ~125 and ~63 on
+   secp256k1 (214× and 266×). 29 of the 78 regression tests touch a small
+   curve for that reason, and the whole suite runs in about one second.
+3. **What it does NOT cover.** `secp17k1` has `a = 0`, exactly like secp256k1.
+   The `+ a` term in the doubling slope is therefore dead code on both shipped
+   curves — a **permanent** blind spot, not a probabilistic one, since
+   `3x² + 0` is identically `3x²` no matter how many trials are run. The
+   previous test curve carried `a = 1` and was the only thing exercising that
+   term; the swap silently removed the coverage. §3.3.2 restores it.
 
 The cost is real and worth stating: `mode` branching appears in ~10 places, the
 nonce source and message hash differ between modes, and RFC 6979 is therefore
 exercised only on `legacy`. Those are known warts, not accidents — see §8.
+
+#### 3.3.2 The `a ≠ 0` test fixture
+
+Because neither shipped curve exercises the `a` term (§3.3.1, point 3),
+`tests/run_tests.py` defines a third curve used by `test_G9` alone:
+
+```text
+toy-a1p17 :  y² = x³ + x + 5   over  F_100003,   G = (2, 13675),   n = 99707
+```
+
+Validated inside the test rather than trusted: `p` and `n` prime, non-singular
+(`4a³ + 27b² = 679`), `G` on the curve, `n·G = O`, Hasse satisfied (`t = 297`,
+bound `632`), and `p ≡ 3 (mod 4)` so square roots stay cheap. `test_G9` then
+compares `point_add`'s doubling against an independent reference **and requires
+that the same reference with `a` forced to zero disagrees** — otherwise the
+test could not detect the defect it exists for.
+
+It is deliberately **not** added to `ALL_CURVES` or to `ecurve/secp256k1.py`: it
+is a fixture for one arithmetic path, not a third parameter set the rest of the
+project should start branching on. `test_G9b` records that the shipped curves
+still leave `a` untested, and will flip to a skip if `TEST_PARAMS` ever gains a
+non-zero `a`, making the fixture redundant.
 
 ### 3.4 Key generation
 
@@ -285,7 +314,7 @@ against the official RIPEMD-160 vectors (including the one-million-`a` vector)
 and fuzzed against `hashlib` across block boundaries.
 
 For `TEST_PARAMS`, `hash_message` returns `random.randrange(1, n−1)` — `z` is
-**not** bound to the message. This is intentional for the toy curve but means
+**not** bound to the message. This is intentional for the test curve but means
 test mode is not a signing oracle.
 
 ### 3.9 Magnitude of a nonce from its leading digits (`k_magnitude.py`)
@@ -318,8 +347,17 @@ base rate of "`n` has 78 digits, so 90% of values below it have 77" — it is th
 prior, not information gained. Knowing `D(k) = 77` narrows `k` to a band of
 width ≈ `10⁷⁶ ≈ 2²⁵³`, i.e. roughly **3 bits** of narrowing from a 256-bit
 space, and each magnitude step carries `log₂10 ≈ 3.32` bits of residual
-uncertainty. The same shape holds on the toy curve (87 pairs → `D = 9` at
-p = 0.90).
+uncertainty.
+
+The same degenerate shape holds on `secp17k1` (`n = 99667`, 5 digits, begins
+`99`), though the split differs: 89 of the 90 leading pairs predict `D = 5` at
+p = 0.900, and the remaining pair `99` predicts `D = 5` at p = 0.857. Every pair
+maps to the same magnitude here, because `n` sits near the top of the 5-digit
+range — whereas secp256k1's `n` begins `11`, so its boundary pairs `10` and `11`
+fall into a *different* magnitude. The exact numbers are curve-specific and are
+pinned by the `k_magnitude` doctests, which must be updated whenever the test
+curve changes; `test_E21b` pins the curve-independent part (one magnitude covers
+at least 88 of the 90 pairs on any curve).
 
 This is why the module docstring states plainly that it is **not** a usable
 nonce-bit predictor for correctly generated nonces — and it is the reason the
@@ -479,19 +517,38 @@ hypothetical, not a forecast.
 | Symbol | Purpose |
 | --- | --- |
 | `CurveParams` | frozen dataclass of `(name, mode, p, a, b, g, n)` |
-| `TEST_PARAMS` (`toy-p31r1`), `LEGACY_PARAMS` (`secp256k1`) | the two parameter sets (§3.3) |
+| `TEST_PARAMS` (`secp17k1`), `LEGACY_PARAMS` (`secp256k1`) | the two parameter sets (§3.3) |
 | `Secp256k1.point_add / scalar_multiply / inverse_point` | group law (§3.2, §3.5) |
 | `Secp256k1.is_on_curve` | membership test; `None` (infinity) is a member |
 | `Secp256k1.generate_keypair / _generate_private_key / generate_unique_keys` | key generation (§3.4) |
 | `Secp256k1.hash_message / sign_message / verify_signature` | ECDSA (§3.6) |
 | `Secp256k1._rfc6979_k_candidates / _bits2int / _int2octets` | RFC 6979 (§3.7) |
 | `make_bitcoin_{legacy,segwit}_sighash_message`, `hash160`, `compress_public_key`, `encode_varint` | Bitcoin encodings (§3.8) |
+| `inverse_mod_safe`, `mod_sqrt_all`, `recover_x_from_s_zk`, `Secp256k1.verify_x_candidate` | public-only ECDSA relations: turn a guess for `s_zk = z·k⁻¹` into a private-key candidate and **confirm it on the curve** |
+
+`mod_sqrt_all` replaces a former undeclared `sympy.sqrt_mod` dependency: the
+`p ≡ 3 (mod 4)` shortcut where available, Tonelli-Shanks otherwise.
+`verify_x_candidate` is what makes a guess into a proven key rather than an
+unchecked one.
+
+**Removed:** `int_to_bytes`. It was dead code — nothing in the repository ever
+called it — but `ecurve/__init__.py` kept re-exporting it, so `import ecurve`
+raised `ImportError` and took every consumer down with it, including the test
+suite that would otherwise have reported the problem. See §7.1.
+
+### `ecurve/__init__.py`
+
+Re-exports the names a caller actually reaches for, and nothing else. Everything
+further stays addressable at its real home (`ecurve.secp256k1.mod_sqrt_all`, and
+so on), because every duplicated name is another chance for the package surface
+to drift from the modules. Pinned by `test_H1` … `test_H5`.
 
 ### `ecurve/k_magnitude.py`
 
 `magnitude_distribution(lead, n) -> dict[int, float]` — exact conditional
 distribution; `predict_magnitude(lead, n) -> Prediction(magnitude, probability)`
-— its argmax (§3.9).
+— its argmax (§3.9). The doctests reference `TEST_PARAMS` and are therefore
+curve-specific; `test_E16` fails loudly when they drift.
 
 ### `ecurve/_ripemd160.py`
 
@@ -519,7 +576,7 @@ Key helpers: `joint_clean_probability`, `bayes_post_clean`,
 ## 5. Usage
 
 `--curve-mode` defaults to **`legacy`** (real secp256k1) everywhere it appears.
-Pass `--curve-mode test` explicitly to select `toy-p31r1`; expect it to be ~70×
+Pass `--curve-mode test` explicitly to select `secp17k1`; expect it to be ~200×
 faster and to answer a different question (§3.3.1).
 
 The `test_A3_*` tests exercise the **import-sensitive** invocations below — the
@@ -529,9 +586,13 @@ ambiguity. The remaining commands are illustrative and are not each pinned by a
 dedicated test.
 
 ```bash
-# Regression suite (no dependencies)
-python3 tests/test_fixes.py
-python3 -m pytest tests/ -q          # if pytest is installed
+# Regression suite (no dependencies) -- table output, see section 7
+python3 tests/run_tests.py
+python3 tests/run_tests.py -k filter        # only tests matching a substring
+python3 tests/run_tests.py --list           # enumerate without running
+python3 tests/run_tests.py --plain          # unittest's own text output
+python3 tests/run_tests.py -v               # + full tracebacks on failure
+python3 -m pytest tests/run_tests.py -q     # if pytest is installed
 
 # Curve / sign / verify demo, standalone, as in the original project:
 cd ecurve && python secp256k1.py > secp256k1.txt
@@ -542,14 +603,14 @@ python3 -m ecurve.secp256k1
 # Magnitude distribution on secp256k1 (§3.9); --curve-mode defaults to legacy:
 python3 -m ecurve.k_magnitude                     # all leading pairs 10..99
 python3 -m ecurve.k_magnitude --digits 47
-python3 -m ecurve.k_magnitude --curve-mode test   # toy-p31r1, for comparison
+python3 -m ecurve.k_magnitude --curve-mode test   # secp17k1, for comparison
 
 # Signature corpus on real secp256k1, fixed key, BIP 143 preimages:
 python3 generate_transaction_list.py \
         --private-key 64389052532870313044990203562685705333461655978490098671693221677551702405611 \
         --tx-per-key 5 --sig-type p2wpkh --outdir out
 
-# Same, on the toy curve — fast, reproducible via --seed:
+# Same, on the test curve — fast, reproducible via --seed:
 python3 generate_transaction_list.py --curve-mode test --keys 3 \
         --tx-per-key 20 --seed 42 --outdir out
 
@@ -572,6 +633,15 @@ python3 ecdsa_attack_complexity.py --p-mag-mode marginal \
 python3 ecdsa_attack_complexity.py --leak-bits 4 6 8 \
         --t-per-run-sec 2.0 --t-run-dim-ref 58 --t-run-doubling-dims 12 \
         --cores 1 8 64 --precision full --csv complexity.csv
+```
+
+Note the explicit path in the `pytest` form. pytest only auto-discovers files
+matching `test_*.py` or `*_test.py`, so a bare `pytest tests/` collects nothing
+here and exits 5. To make the bare form work, add to `pytest.ini`:
+
+```ini
+[pytest]
+python_files = run_tests.py test_*.py
 ```
 
 Key flags for `generate_transaction_list.py`: `--curve-mode {test,legacy}` (default
@@ -612,7 +682,20 @@ constructed to hit the target exactly.
 
 ## 7. Verified invariants
 
-Enforced by `tests/test_fixes.py` (58 tests, all passing):
+`tests/run_tests.py` holds **78 tests** built on `unittest`, grouped into
+`TestCase` classes by concern. The default runner prints a table; each class
+docstring supplies a section heading and each method name carries the audit ID
+it regresses (`A1`, `B3`, `F2`, `G9`, `H3`, …). It runs in about one second.
+
+**What is pinned as a literal and what is derived.** Anything fixed by an
+external specification stays a literal: the RFC 6979 vectors, the RIPEMD-160
+digest of `b"abc"`, the `m_req` formula. Anything that is a *project choice* is
+read from the source of truth at runtime — curve orders, private keys, digit
+counts. An earlier revision hardcoded the test curve's order and a private key
+valid only for it, so swapping `TEST_PARAMS` broke four tests that had nothing
+to do with the change.
+
+Enforced by the suite:
 
 - RFC 6979: 3/3 official secp256k1 + SHA-256 test vectors exercised by the suite.
 - RIPEMD-160 / HASH160: known-answer digests for `b"abc"` pinned, exercising the
@@ -623,7 +706,21 @@ Enforced by `tests/test_fixes.py` (58 tests, all passing):
 - Generated public keys lie on the curve, on both parameter sets.
 - `n·G = O`; `scalar_multiply` returns `None` (never `(0,0)`) for infinity.
 - `P + (−P) = O` returns `None` and `verify_signature` survives it.
-- `magnitude_distribution` sums to 1; `k_magnitude` doctests pass.
+- **Curve parameters themselves** (`test_G1` … `test_G8`, §3.3): `G` on the
+  curve, `n·G = O`, `(n−1)·G = −G`, `n` and `p` prime, non-singular, Hasse
+  bound, and a `p − n` gap wide enough to make the coordinate path reachable.
+- **Negative cases**, which mutation testing showed were entirely absent:
+  `is_on_curve` rejects off-curve points (`test_G10`); `verify_signature`
+  rejects an off-curve or `None` public key *before* touching scalar
+  multiplication, which is what stops invalid-curve attacks (`test_G11`); a
+  tampered `r`, `s` or `z` is rejected rather than merely returning some bool
+  (`test_G12`).
+- **Package surface** (`test_H1` … `test_H5`, §7.1): every name in
+  `ecurve.__all__` resolves, re-exports are the same objects as the modules'
+  and `__init__.py`'s import list is diffed against the modules statically.
+- `magnitude_distribution` sums to 1 on both curves; `k_magnitude` doctests
+  pass; and the predictor's degeneracy is asserted curve-independently — one
+  magnitude covers at least 88 of the 90 leading pairs (`test_E21b`).
 - Argument validation rejects out-of-range inputs on both entry points:
   `generate_transaction_list.py` (`--keys 0`, negative `--keys`, `--private-key`
   outside `[1, n-1]`, `--ml-exp-accuracy` outside `[0, 1]`, `--min-start-range ≥ n`)
@@ -647,6 +744,49 @@ Enforced by `tests/test_fixes.py` (58 tests, all passing):
 - The import-sensitive invocation modes (standalone from `ecurve/` and
   `python -m ecurve.…`) import and run, under `test_A3_*`.
 
+### 7.1 Two failure modes the suite cannot test, and what replaces them
+
+**A broken `ecurve/__init__.py` stops the suite from loading at all**, so no
+test can report it — the traceback names the symbol but not the fix, and points
+at the module that is innocent rather than the one that is stale. `run_tests.py`
+therefore wraps its imports in a diagnostic that names the offending file and
+line, offers the two possible repairs, and exits 2 (distinct from 1, which means
+tests failed). This is what the `int_to_bytes` removal (§4) surfaced.
+
+**A test runner can hide failures.** unittest reports a failing
+`self.subTest(...)` block through `addSubTest` and then does *not* call
+`addSuccess` for the parent test. A result class that only overrides
+`addSuccess`/`addFailure`/`addError` records nothing for that test: the row
+vanishes, the FAIL count stays at zero, and the summary prints ALL GREEN over a
+real failure. Dozens of tests here use `subTest`, and this bug was live long
+enough to make four genuine failures invisible. The table runner now handles
+`addSubTest` explicitly, treats a test that reports no outcome as an ERROR
+rather than dropping it, and cross-checks its row count against
+`result.testsRun` before printing a verdict.
+
+### 7.2 Mutation testing
+
+"All tests pass" says nothing about whether the tests could fail. Injecting
+plausible defects and counting which tests notice:
+
+| Injected defect | Tests that catch it |
+| --- | --- |
+| Drop `x₂` from `x₃ = λ² − x₁ − x₂` | 6 |
+| `is_on_curve` returns `True` unconditionally | 2 |
+| `r_y = y % n` (bug B6) | 1 |
+| Drop the on-curve guard in `verify_signature` | 1 |
+| Drop `+ a` from the doubling slope | 1 (`test_G9`, via the §3.3.2 fixture) |
+
+Two further mutations are **not** caught, and both are provably **equivalent
+mutants** rather than coverage gaps — `test_G13` pins the property that makes
+them so:
+
+- `point_add`'s inverse test. The old form `x₁ = x₂ and y₁ ≠ y₂` diverges from
+  `(y₁ + y₂) ≡ 0 (mod p)` only at `y₁ = y₂ = 0`, i.e. a point of order two. A
+  group of odd prime order has none.
+- `scalar_multiply`'s skipped final doubling is an optimisation; the discarded
+  point cannot affect the result.
+
 ---
 
 ## 8. Known limitations
@@ -655,12 +795,21 @@ Enforced by `tests/test_fixes.py` (58 tests, all passing):
   ladder is deliberately non-constant-time (§3.5). Do not use any of this to
   protect real funds.
 - Test-mode `z` is not bound to the message (§3.8), so `mode="test"` is not a
-  signing oracle. This also means the toy curve cannot exercise RFC 6979, which
+  signing oracle. This also means the test curve cannot exercise RFC 6979, which
   leaves the most delicate cryptographic code in the repository covered only by
-  the 70×-slower curve (§3.3.1).
+  the 200×-slower curve (§3.3.1).
+- **Neither shipped curve exercises the `a` term** in the doubling slope, since
+  both set `a = 0`. Coverage comes only from a fixture defined inside the test
+  suite (§3.3.2). Anyone reusing `ecurve/` with a curve where `a ≠ 0` is running
+  a path that the shipped parameters never touch.
 - `mode` branching appears in ~10 places; each is a site where the two curves can
   drift apart.
 - `maximum_transaction_count = (n−1)⁴` has no defined security meaning.
+- `ecurve/__init__.py` is a hand-maintained export list, and so is this README.
+  Both have drifted from the code before. The machine-checked parts are the
+  cost-model defaults block (§3.10) and the package surface (§7.1); the prose
+  around them is not pinned by anything and should be treated as the least
+  trustworthy artefact in the repository.
 - The cost model's `t_per_run_sec` is uncalibrated unless you pass it, and the
   dimension-scaling model is opt-in via `--t-run-doubling-dims`; without it,
   rows for different `L` are not comparable and the tool says so (§3.10).
