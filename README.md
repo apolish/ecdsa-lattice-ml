@@ -801,16 +801,16 @@ them so:
 
 ## 9. References
 
-* SEC 2: *Recommended Elliptic Curve Domain Parameters* (secp256k1).
-* RFC 6979, *Deterministic Usage of DSA and ECDSA* — Pornin, 2013.
-* Boneh & Venkatesan, *Hardness of Computing the Most Significant Bits of Secret
+- SEC 2: *Recommended Elliptic Curve Domain Parameters* (secp256k1).
+- RFC 6979, *Deterministic Usage of DSA and ECDSA* — Pornin, 2013.
+- Boneh & Venkatesan, *Hardness of Computing the Most Significant Bits of Secret
   Keys in Diffie-Hellman* — CRYPTO 1996 (origin of the HNP).
-* Howgrave-Graham & Smart, *Lattice Attacks on Digital Signature Schemes* —
+- Howgrave-Graham & Smart, *Lattice Attacks on Digital Signature Schemes* —
   Designs, Codes and Cryptography, 2001.
-* Nguyen & Shparlinski, *The Insecurity of the Elliptic Curve Digital Signature
+- Nguyen & Shparlinski, *The Insecurity of the Elliptic Curve Digital Signature
   Algorithm with Partially Known Nonces* — J. Cryptology, 2003.
-* BIP 143, *Transaction Signature Verification for Version 0 Witness Program*.
-* Dobbertin, Bosselaers & Preneel, *RIPEMD-160: A Strengthened Version of
+- BIP 143, *Transaction Signature Verification for Version 0 Witness Program*.
+- Dobbertin, Bosselaers & Preneel, *RIPEMD-160: A Strengthened Version of
   RIPEMD* — FSE 1996.
 
 ---
