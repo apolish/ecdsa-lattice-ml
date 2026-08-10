@@ -146,11 +146,11 @@ It is a **test fixture**, not an alternative research target. Measured by
 mutation testing (inject a plausible bug, run the suite, see which tests
 notice):
 
-| Injected defect | `secp17k1` | `toy-a1p17` (§3.3.2) | `secp256k1` |
-| --- | --- | --- | --- |
-| `r_y = y % n` (the real bug B6) | **caught** | — | **never caught** |
-| Drop `x₂` from `x₃ = λ² − x₁ − x₂` | caught | caught | caught |
-| Drop `+ a` from the doubling slope | **never caught** | **caught** | **never caught** |
+| Injected defect | `secp17k1` | `secp256k1` |
+| --- | --- | --- |
+| `r_y = y % n` (the real bug B6) | **caught** | **never caught** |
+| Drop `x₂` from `x₃ = λ² − x₁ − x₂` | caught | caught |
+| Drop `+ a` from the doubling slope | **never caught** | **never caught** |
 
 1. **The `p − n` gap makes coordinate bugs reachable.** With `p − n = 336`,
    `P(coordinate ≥ n) ≈ 3.36e−3` — about 1 in 298 signatures, so `test_B6` now
@@ -171,28 +171,6 @@ notice):
 The cost is real and worth stating: `mode` branching appears in ~10 places, the
 nonce source and message hash differ between modes, and RFC 6979 is therefore
 exercised only on `legacy`. Those are known warts, not accidents — see §8.
-
-#### 3.3.2 The `a ≠ 0` test fixture
-
-Because neither shipped curve exercises the `a` term (§3.3.1, point 3),
-`tests/run_tests.py` defines a third curve used by `test_G9` alone:
-
-```text
-toy-a1p17 :  y² = x³ + x + 5   over  F_100003,   G = (2, 13675),   n = 99707
-```
-
-Validated inside the test rather than trusted: `p` and `n` prime, non-singular
-(`4a³ + 27b² = 679`), `G` on the curve, `n·G = O`, Hasse satisfied (`t = 297`,
-bound `632`), and `p ≡ 3 (mod 4)` so square roots stay cheap. `test_G9` then
-compares `point_add`'s doubling against an independent reference **and requires
-that the same reference with `a` forced to zero disagrees** — otherwise the
-test could not detect the defect it exists for.
-
-It is deliberately **not** added to `ALL_CURVES` or to `ecurve/secp256k1.py`: it
-is a fixture for one arithmetic path, not a third parameter set the rest of the
-project should start branching on. `test_G9b` records that the shipped curves
-still leave `a` untested, and will flip to a skip if `TEST_PARAMS` ever gains a
-non-zero `a`, making the fixture redundant.
 
 ### 3.4 Key generation
 
