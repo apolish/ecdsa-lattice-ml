@@ -1,7 +1,7 @@
 # ecdsa_lattice_ml
 
-Research on hypothetical attacks on ECDSA using lattices and advanced ML/DL 
-approaches to predict leakage of the leading bits of each signature k-nonce.
+Investigation of ECDSA state spaces, lattice-based cryptanalysis, and
+ML applications in predicting hidden cryptographic meta-invariants.
 
 > ⚠️ **NOTICE:** This project is under active research and development,
 > so some files **may not be added in time**.
