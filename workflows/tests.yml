@@ -41,7 +41,7 @@ jobs:
       - name: Regression suite
         run: python tests/run_tests.py
 
-      - name: Smoke - toy curve corpus (reproducible)
+      - name: Smoke - test curve corpus (reproducible)
         run: python generate_transaction_list.py --curve-mode test --keys 2 --tx-per-key 5 --seed 1 --outdir "${{ runner.temp }}/out"
 
       - name: Smoke - cost model

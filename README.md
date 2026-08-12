@@ -150,7 +150,10 @@ notice):
 | --- | --- | --- |
 | `r_y = y % n` (the real bug B6) | **caught** | **never caught** |
 | Drop `x₂` from `x₃ = λ² − x₁ − x₂` | caught | caught |
-| Drop `+ a` from the doubling slope | **never caught** | **never caught** |
+| Drop `+ a` from the doubling slope | never caught | never caught |
+
+The last row is not a coverage gap — it is caught, but by neither curve. See
+point 3 below and §7.2.
 
 1. **The `p − n` gap makes coordinate bugs reachable.** With `p − n = 336`,
    `P(coordinate ≥ n) ≈ 3.36e−3` — about 1 in 298 signatures, so `test_B6` now
@@ -166,7 +169,23 @@ notice):
    curves — a **permanent** blind spot, not a probabilistic one, since
    `3x² + 0` is identically `3x²` no matter how many trials are run. The
    previous test curve carried `a = 1` and was the only thing exercising that
-   term; the swap silently removed the coverage. §3.3.2 restores it.
+   term; the swap silently removed the coverage.
+
+   Rather than introduce a third curve, `test_G9` covers the term
+   *differentially*: it perturbs the `a` field of an existing parameter set,
+   then requires that `point_add` matches an independent reference which keeps
+   the term and diverges from the same reference with the term dropped. Nothing
+   claims the perturbed parameters form a valid curve, and nothing is signed on
+   them — the assertion is only about whether the implementation reads
+   `curve.a` and places it correctly. This catches subtle corruptions too
+   (`3x² + 2a`, `3x² − a`), each of which is invisible to every other test in
+   the suite.
+
+   What it still does **not** cover, and only a genuine `a ≠ 0` curve would:
+   that the group law's *invariants* survive `a ≠ 0` — that doubling lands back
+   on the curve, agrees with `scalar_multiply`, and respects the order.
+   `test_G9b` records that residual gap and will flip to a skip if
+   `TEST_PARAMS` ever gains a non-zero `a`.
 
 The cost is real and worth stating: `mode` branching appears in ~10 places, the
 nonce source and message hash differ between modes, and RFC 6979 is therefore
@@ -749,11 +768,16 @@ plausible defects and counting which tests notice:
 
 | Injected defect | Tests that catch it |
 | --- | --- |
-| Drop `x₂` from `x₃ = λ² − x₁ − x₂` | 6 |
-| `is_on_curve` returns `True` unconditionally | 2 |
-| `r_y = y % n` (bug B6) | 1 |
-| Drop the on-curve guard in `verify_signature` | 1 |
-| Drop `+ a` from the doubling slope | 1 (`test_G9`, via the §3.3.2 fixture) |
+| Drop `x₂` from `x₃ = λ² − x₁ − x₂` | 5 |
+| `is_on_curve` returns `True` unconditionally | 2 (`test_G10`, `test_G11`) |
+| `r_y = y % n` (bug B6) | 1 (`test_B6`) |
+| Drop the on-curve guard in `verify_signature` | 1 (`test_G11`) |
+| Drop `+ a` from the doubling slope | 1 (`test_G9`, §3.3.1) |
+| `3x² + 2a` — subtle corruption of the same term | 1 (`test_G9`) |
+| `3x² − a` — subtle corruption of the same term | 1 (`test_G9`) |
+
+The last three rows are caught by `test_G9` alone: with `a = 0` on both shipped
+curves, they are arithmetically invisible everywhere else in the suite.
 
 Two further mutations are **not** caught, and both are provably **equivalent
 mutants** rather than coverage gaps — `test_G13` pins the property that makes
@@ -777,9 +801,10 @@ them so:
   leaves the most delicate cryptographic code in the repository covered only by
   the 200×-slower curve (§3.3.1).
 - **Neither shipped curve exercises the `a` term** in the doubling slope, since
-  both set `a = 0`. Coverage comes only from a fixture defined inside the test
-  suite (§3.3.2). Anyone reusing `ecurve/` with a curve where `a ≠ 0` is running
-  a path that the shipped parameters never touch.
+  both set `a = 0`. `test_G9` pins the *formula* differentially (§3.3.1), but no
+  test pins the group-law *invariants* for `a ≠ 0` — that would need parameters
+  which genuinely are such a curve. Anyone reusing `ecurve/` with `a ≠ 0` is
+  running a path the shipped parameters never touch.
 - `mode` branching appears in ~10 places; each is a site where the two curves can
   drift apart.
 - `maximum_transaction_count = (n−1)⁴` has no defined security meaning.

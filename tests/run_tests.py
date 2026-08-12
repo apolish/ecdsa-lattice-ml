@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import hashlib
 import io
 import math
@@ -230,27 +231,6 @@ def is_probable_prime(n: int, rounds: int = 40) -> bool:
 
 ALL_CURVES = (TEST_PARAMS, LEGACY_PARAMS)
 
-# A test-only curve with a != 0, used by G9. Both shipped curves set a = 0, so
-# without this the `+ a` term in point_add's doubling slope is unreachable dead
-# code. Verified in G9 itself: p and n prime, non-singular, G on the curve,
-# n*G = O, Hasse satisfied, and p % 4 == 3 so square roots stay cheap.
-#
-#   E : y^2 = x^3 + x + 5  over  F_100003,  #E = 99707 (prime)
-#
-# It is deliberately NOT added to ALL_CURVES: it is a fixture for one
-# arithmetic path, not a third parameter set the rest of the project should
-# start branching on. Promote it into ecurve/secp256k1.py only if something
-# outside the suite needs it.
-A_NONZERO = type(TEST_PARAMS)(
-    name="toy-a1p17",
-    mode="test",
-    p=100003,
-    a=1,
-    b=5,
-    g=(2, 13675),
-    n=99707,
-)
-
 
 # ==========================================================================
 # G -- curve parameters and structural invariants
@@ -320,66 +300,74 @@ class TestCurveParameters(unittest.TestCase):
                            f"p - n = {c.p - c.n} leaves P(y >= n) = {gap:.2e}; "
                            f"too rare to exercise the coordinate path")
 
-    def test_G9_doubling_exercises_the_a_coefficient(self):
+    def test_G9_doubling_slope_consumes_the_a_coefficient(self):
         """The `+ a` term in the doubling slope must be exercised by something.
 
-        lambda = (3x^2 + a) / 2y. Both shipped curves set a = 0 -- secp256k1
-        by definition, secp17k1 by choice -- so on them the term is identically
+        lambda = (3x^2 + a) / 2y. Both shipped curves set a = 0 -- secp256k1 by
+        definition, secp17k1 by choice -- so on them the term is identically
         zero and any defect in it is invisible *no matter how many trials are
         run*. It is a permanent blind spot, not a probabilistic one: mutation
-        testing confirmed that deleting `+ a` left the entire suite green.
+        testing confirmed that deleting `+ a` left the rest of the suite green.
 
-        A_NONZERO is a test-only fixture that restores the coverage without
-        touching the shipped parameters. It is checked here rather than trusted:
-        an invalid fixture would make this test meaningless.
+        Rather than introduce a third curve, perturb the `a` field of an
+        existing one and require that point_add's arithmetic responds to it,
+        matching an independent reference that keeps the term and diverging
+        from the same reference with the term dropped. Nothing here claims the
+        perturbed parameters form a valid curve, and nothing is signed or
+        verified on them -- the assertion is purely differential, about whether
+        the implementation reads `curve.a` and uses it in the right place.
+
+        What this does NOT cover, and a real a != 0 curve would: that the group
+        law's *invariants* still hold when a != 0 -- that doubling lands back
+        on the curve, that it agrees with scalar_multiply, that the order is
+        respected. Those need parameters that are genuinely a curve. See the
+        limitation noted in the README.
         """
-        c = A_NONZERO
-        ec = Secp256k1(c)
-
-        # the fixture must itself be a valid curve, or this proves nothing
-        self.assertNotEqual(c.a % c.p, 0, "fixture defeats its own purpose")
-        self.assertNotEqual((4 * c.a**3 + 27 * c.b**2) % c.p, 0)
-        gx, gy = c.g
-        self.assertEqual((gy * gy - gx**3 - c.a * gx - c.b) % c.p, 0)
-        self.assertTrue(is_probable_prime(c.n))
-        self.assertTrue(is_probable_prime(c.p))
-        self.assertIsNone(ec.scalar_multiply(c.n, c.g))
-        self.assertLessEqual(abs(c.p + 1 - c.n), 2 * math.isqrt(c.p))
-
-        # doubling must agree with an independent reference that keeps `+ a`,
-        # and must disagree with the same reference once `+ a` is dropped
-        def slope(x, y, a):
-            return (3 * x * x + a) * pow(2 * y, -1, c.p) % c.p
-
-        def double(point, a):
+        def ref_double(point, a, p):
             x, y = point
-            m = slope(x, y, a)
-            x3 = (m * m - 2 * x) % c.p
-            return x3, (m * (x - x3) - y) % c.p
+            m = (3 * x * x + a) * pow(2 * y, -1, p) % p
+            x3 = (m * m - 2 * x) % p
+            return x3, (m * (x - x3) - y) % p
 
-        for k in (1, 2, 3, 5, 8, 13, 21):
-            with self.subTest(k=k):
-                point = ec.scalar_multiply(k, c.g)
-                doubled = ec.point_add(point, point)
-                self.assertEqual(doubled, double(point, c.a))
-                self.assertTrue(ec.is_on_curve(doubled))
-                self.assertEqual(doubled, ec.scalar_multiply(2 * k, c.g))
-                self.assertNotEqual(doubled, double(point, 0),
-                                    "dropping `+ a` changed nothing here, so "
-                                    "this point cannot detect the defect")
+        for c in ALL_CURVES:
+            for a in (1, 2, 7):
+                with self.subTest(curve=c.name, a=a):
+                    base = Secp256k1(c)
+                    point = base.scalar_multiply(5, c.g)
 
-    def test_G9b_shipped_curves_still_leave_the_a_term_untested(self):
-        """Record which curves actually cover `a`, so the gap cannot resurface.
+                    probed = Secp256k1(c)
+                    probed._curve = dataclasses.replace(c, a=a)
+                    got = probed.point_add(point, point)
 
-        If TEST_PARAMS is ever given a non-zero a, this test says so and G9's
-        fixture becomes redundant. Until then, the fixture is the only coverage
-        and that fact should be visible rather than assumed.
+                    self.assertEqual(got, ref_double(point, a, c.p),
+                                     "doubling slope does not match "
+                                     "(3x^2 + a) / 2y for a != 0")
+                    self.assertNotEqual(got, ref_double(point, 0, c.p),
+                                        "changing `a` changed nothing, so "
+                                        "point_add is ignoring the term")
+                    self.assertEqual(base.point_add(point, point),
+                                     ref_double(point, c.a, c.p),
+                                     "perturbing the probe leaked into the "
+                                     "unmodified instance")
+
+    def test_G9b_shipped_curves_leave_a_untested_behaviourally(self):
+        """Record the residual gap so it cannot quietly become an assumption.
+
+        G9 pins the formula. It cannot pin the group-law invariants for a != 0,
+        because neither shipped curve has a != 0 and this suite deliberately
+        does not define one. If TEST_PARAMS ever gains a non-zero `a`, this
+        test says so and the gap closes on its own.
         """
-        shipped_with_a = [c.name for c in ALL_CURVES if c.a % c.p != 0]
-        if shipped_with_a:
-            self.skipTest(f"shipped curves now cover `a`: {shipped_with_a}; "
-                          f"the A_NONZERO fixture in G9 is redundant")
-        self.assertEqual(A_NONZERO.a % A_NONZERO.p != 0, True)
+        with_a = [c.name for c in ALL_CURVES if c.a % c.p != 0]
+        if with_a:
+            self.skipTest(f"shipped curves now cover `a` behaviourally: "
+                          f"{with_a}; G9's differential probe is no longer the "
+                          f"only coverage and this note can be dropped")
+        for c in ALL_CURVES:
+            with self.subTest(curve=c.name):
+                self.assertEqual(c.a % c.p, 0,
+                                 "a shipped curve gained a != 0 but was not "
+                                 "reported above; the skip logic is broken")
 
 
     def test_G10_is_on_curve_rejects_off_curve_points(self):
