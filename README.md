@@ -128,7 +128,8 @@ Defined in `ecurve/secp256k1.py` as frozen `CurveParams` dataclasses.
 **Verified invariants.** `G` lies on the curve, `n·G = O`, `(n−1)·G = −G`, `n`
 and `p` are prime (Miller-Rabin — trial division cannot reach a 256-bit order),
 the curve is non-singular (`4a³ + 27b² ≠ 0`), and the Hasse bound holds. These
-run on **both** parameter sets under `test_G1` … `test_G7`.
+run on **both** parameter sets as separate checks in the suite's *Curve
+parameters and structural invariants* section.
 
 They are listed here because an earlier revision of this README claimed they
 were "all checked in tests/" when **none of them were**: the suite tested
@@ -155,37 +156,37 @@ notice):
 The last row is not a coverage gap — it is caught, but by neither curve. See
 point 3 below and §7.2.
 
-1. **The `p − n` gap makes coordinate bugs reachable.** With `p − n = 336`,
-   `P(coordinate ≥ n) ≈ 3.36e−3` — about 1 in 298 signatures, so `test_B6` now
-   *requires* the event rather than hoping for it: 5000 signatures miss it with
-   probability ≈ 5e−8. On secp256k1 the same event sits at `≈ 3.73e−39`, an
-   expected wait of ~7e28 years at the measured signing rate. Bug B6 was
-   findable *only* because a small curve exists.
-2. **Speed.** ~26,800 sign/s and ~16,800 verify/s versus ~125 and ~63 on
-   secp256k1 (214× and 266×). 29 of the 78 regression tests touch a small
-   curve for that reason, and the whole suite runs in about one second.
-3. **What it does NOT cover.** `secp17k1` has `a = 0`, exactly like secp256k1.
-   The `+ a` term in the doubling slope is therefore dead code on both shipped
-   curves — a **permanent** blind spot, not a probabilistic one, since
-   `3x² + 0` is identically `3x²` no matter how many trials are run. The
-   previous test curve carried `a = 1` and was the only thing exercising that
-   term; the swap silently removed the coverage.
+- **The `p−n` gap makes coordinate bugs reachable.** With `p−n = 336`,
+  `P(coordinate ≥ n) ≈ 3.36e−3` — about 1 in 298 signatures, so
+  `test_ry_not_reduced_mod_n` now *requires* the event rather than hoping for
+  it: 5000 signatures miss it with probability ≈ 5e−8. On secp256k1 the same
+  event sits at `≈ 3.73e−39`, an expected wait of ~7e28 years at the measured
+  signing rate. Bug B6 was findable *only* because a small curve exists.
+- **Speed.** ~26,800 sign/s and ~16,800 verify/s versus ~125 and ~63 on
+  secp256k1 (214× and 266×). 29 of the 78 regression tests touch a small curve
+  for that reason, and the whole suite runs in about one second.
+- **What it does NOT cover.** `secp17k1` has `a=0`, exactly like secp256k1. The `+a`
+  term in the doubling slope is therefore dead code on both shipped curves — a
+  **permanent** blind spot, not a probabilistic one, since `3x²+0` is
+  identically `3x²` no matter how many trials are run. The previous test curve
+  carried `a=1` and was the only thing exercising that term; the swap
+  silently removed the coverage.
 
-   Rather than introduce a third curve, `test_G9` covers the term
-   *differentially*: it perturbs the `a` field of an existing parameter set,
-   then requires that `point_add` matches an independent reference which keeps
-   the term and diverges from the same reference with the term dropped. Nothing
-   claims the perturbed parameters form a valid curve, and nothing is signed on
-   them — the assertion is only about whether the implementation reads
-   `curve.a` and places it correctly. This catches subtle corruptions too
-   (`3x² + 2a`, `3x² − a`), each of which is invisible to every other test in
-   the suite.
+  Rather than introduce a third curve,
+  `test_doubling_slope_consumes_the_a_coefficient` covers the term
+  *differentially*: it perturbs the `a` field of an existing parameter set,
+  then requires that `point_add` matches an independent reference which keeps
+  the term and diverges from the same reference with the term dropped. Nothing
+  claims the perturbed parameters form a valid curve, and nothing is signed on
+  them — the assertion is only about whether the implementation reads
+  `curve.a` and places it correctly. This catches subtle corruptions too (`3x²+2a`,
+  `3x²−a`), each of which is invisible to every other test in the suite.
 
-   What it still does **not** cover, and only a genuine `a ≠ 0` curve would:
-   that the group law's *invariants* survive `a ≠ 0` — that doubling lands back
-   on the curve, agrees with `scalar_multiply`, and respects the order.
-   `test_G9b` records that residual gap and will flip to a skip if
-   `TEST_PARAMS` ever gains a non-zero `a`.
+  What it still does **not** cover, and only a genuine `a ≠ 0` curve would:
+  that the group law's *invariants* survive `a ≠ 0` — that doubling lands back
+  on the curve, agrees with `scalar_multiply`, and respects the order.
+  `test_shipped_curves_leave_a_untested_behaviourally` records that residual
+  gap and will flip to a skip if `TEST_PARAMS` ever gains a non-zero `a`.
 
 The cost is real and worth stating: `mode` branching appears in ~10 places, the
 nonce source and message hash differ between modes, and RFC 6979 is therefore
@@ -348,13 +349,14 @@ uncertainty.
 
 The same degenerate shape holds on `secp17k1` (`n = 99667`, 5 digits, begins
 `99`), though the split differs: 89 of the 90 leading pairs predict `D = 5` at
-p = 0.900, and the remaining pair `99` predicts `D = 5` at p = 0.857. Every pair
-maps to the same magnitude here, because `n` sits near the top of the 5-digit
-range — whereas secp256k1's `n` begins `11`, so its boundary pairs `10` and `11`
-fall into a *different* magnitude. The exact numbers are curve-specific and are
-pinned by the `k_magnitude` doctests, which must be updated whenever the test
-curve changes; `test_E21b` pins the curve-independent part (one magnitude covers
-at least 88 of the 90 pairs on any curve).
+p = 0.900, and the remaining pair `99` predicts `D = 5` at p = 0.857. Every
+pair maps to the same magnitude here, because `n` sits near the top of the
+5-digit range — whereas secp256k1's `n` begins `11`, so its boundary pairs `10`
+and `11` fall into a *different* magnitude. The exact numbers are
+curve-specific and are pinned by the `k_magnitude` doctests, which must be
+updated whenever the test curve changes;
+`test_predictor_is_effectively_constant` pins the curve-independent part (one
+magnitude covers at least 88 of the 90 pairs on any curve).
 
 This is why the module docstring states plainly that it is **not** a usable
 nonce-bit predictor for correctly generated nonces — and it is the reason the
@@ -464,7 +466,7 @@ survival probabilities are evaluated in log space too, because `q` routinely
 underflows float64. Parallelism is linear: each reduction is independent.
 
 <!-- defaults:begin -->
-Defaults (machine-checked by `test_F8_readme_defaults_match_the_parser`):
+Defaults (machine-checked by `test_readme_defaults_match_the_parser`):
 `curve_bits=256`, `leak_bits=[6]`, `safety_factor=1.3`, `dim_overhead=2`,
 `p_mag=82.0`, `p_mag_mode=conditional`, `correlation=0.0`,
 `p_ml_start=80.0`, `p_ml_stop=99.0`, `p_ml_step=1.0`,
@@ -535,17 +537,18 @@ suite that would otherwise have reported the problem. See §7.1.
 
 ### `ecurve/__init__.py`
 
-Re-exports the names a caller actually reaches for, and nothing else. Everything
-further stays addressable at its real home (`ecurve.secp256k1.mod_sqrt_all`, and
-so on), because every duplicated name is another chance for the package surface
-to drift from the modules. Pinned by `test_H1` … `test_H5`.
+Re-exports the names a caller actually reaches for, and nothing else.
+Everything further stays addressable at its real home
+(`ecurve.secp256k1.mod_sqrt_all`, and so on), because every duplicated name is
+another chance for the package surface to drift from the modules. Pinned by the
+suite's *Package surface and re-exports* section.
 
 ### `ecurve/k_magnitude.py`
 
 `magnitude_distribution(lead, n) -> dict[int, float]` — exact conditional
-distribution; `predict_magnitude(lead, n) -> Prediction(magnitude, probability)`
-— its argmax (§3.9). The doctests reference `TEST_PARAMS` and are therefore
-curve-specific; `test_E16` fails loudly when they drift.
+distribution; `predict_magnitude(lead, n) -> Prediction(magnitude,
+probability)` — its argmax (§3.9). The doctests reference `TEST_PARAMS` and are
+therefore curve-specific; `test_doctests` fails loudly when they drift.
 
 ### `ecurve/_ripemd160.py`
 
@@ -576,11 +579,12 @@ Key helpers: `joint_clean_probability`, `bayes_post_clean`,
 Pass `--curve-mode test` explicitly to select `secp17k1`; expect it to be ~200×
 faster and to answer a different question (§3.3.1).
 
-The `test_A3_*` tests exercise the **import-sensitive** invocations below — the
-modules run standalone from inside `ecurve/` and via `python -m ecurve.…` —
-since those are the ones that used to break under the package-vs-flat import
-ambiguity. The remaining commands are illustrative and are not each pinned by a
-dedicated test.
+The import-mode tests (the *Import layout and invocation modes* section)
+exercise the **import-sensitive** invocations below — the modules run
+standalone from inside `ecurve/` and via `python -m ecurve.…` — since those are
+the ones that used to break under the package-vs-flat import ambiguity. The
+remaining commands are illustrative and are not each pinned by a dedicated
+test.
 
 ```bash
 # Regression suite (no dependencies) -- table output, see section 7
@@ -681,8 +685,11 @@ constructed to hit the target exactly.
 
 `tests/run_tests.py` holds **78 tests** built on `unittest`, grouped into
 `TestCase` classes by concern. The default runner prints a table; each class
-docstring supplies a section heading and each method name carries the audit ID
-it regresses (`A1`, `B3`, `F2`, `G9`, `H3`, …). It runs in about one second.
+docstring supplies a section heading and each method name plainly describes the
+invariant it checks. (An earlier revision prefixed every name with an audit ID
+— `A1`, `B3`, `F2`, `G9`, `H3`, … — and printed it in a dedicated table column;
+both were dropped once the IDs stopped earning their keep.) It runs in about
+one second.
 
 **What is pinned as a literal and what is derived.** Anything fixed by an
 external specification stays a literal: the RFC 6979 vectors, the RIPEMD-160
@@ -694,52 +701,53 @@ to do with the change.
 
 Enforced by the suite:
 
-- RFC 6979: 3/3 official secp256k1 + SHA-256 test vectors exercised by the suite.
-- RIPEMD-160 / HASH160: known-answer digests for `b"abc"` pinned, exercising the
-  pure-Python fallback path (§3.8). (The broader "all official vectors + block-
-  boundary fuzzing" verification of `_ripemd160.py` is a development-time check,
-  not part of this suite.)
-- `verify(sign(m)) = True` on both curves over repeated trials.
-- Generated public keys lie on the curve, on both parameter sets.
-- `n·G = O`; `scalar_multiply` returns `None` (never `(0,0)`) for infinity.
-- `P + (−P) = O` returns `None` and `verify_signature` survives it.
-- **Curve parameters themselves** (`test_G1` … `test_G8`, §3.3): `G` on the
-  curve, `n·G = O`, `(n−1)·G = −G`, `n` and `p` prime, non-singular, Hasse
-  bound, and a `p − n` gap wide enough to make the coordinate path reachable.
-- **Negative cases**, which mutation testing showed were entirely absent:
-  `is_on_curve` rejects off-curve points (`test_G10`); `verify_signature`
-  rejects an off-curve or `None` public key *before* touching scalar
-  multiplication, which is what stops invalid-curve attacks (`test_G11`); a
-  tampered `r`, `s` or `z` is rejected rather than merely returning some bool
-  (`test_G12`).
-- **Package surface** (`test_H1` … `test_H5`, §7.1): every name in
-  `ecurve.__all__` resolves, re-exports are the same objects as the modules'
-  and `__init__.py`'s import list is diffed against the modules statically.
-- `magnitude_distribution` sums to 1 on both curves; `k_magnitude` doctests
-  pass; and the predictor's degeneracy is asserted curve-independently — one
-  magnitude covers at least 88 of the 90 leading pairs (`test_E21b`).
-- Argument validation rejects out-of-range inputs on both entry points:
-  `generate_transaction_list.py` (`--keys 0`, negative `--keys`, `--private-key`
-  outside `[1, n-1]`, `--ml-exp-accuracy` outside `[0, 1]`, `--min-start-range ≥ n`)
-  and `ecdsa_attack_complexity.py` (non-positive `--safety-factor`,
-  `--t-per-run-sec`, `--curve-bits`, `--leak-bits`, `--cores`, `--p-ml-step`
-  and `--t-run-doubling-dims`; negative `--dim-overhead`; `--p-mag` and
-  `--p-reduction-success` outside their ranges; `--correlation` outside
-  `[-1, 1]`).
-- Cost-model structure, under `test_F*` (§3.10): the unlimited-supply case
-  equals the i.i.d. limit `p_clean^m_req`; the Bayes filter leaves purity
-  unchanged when uninformative, raises it when informative, and rejects
-  inconsistent `(pass_rate, recall, p_clean)` triples; `--filter-pass-rate`
-  demonstrably reaches `runs`; per-run cost doubles every `D` dimensions and is
-  flat without `D`; `--p-reduction-success` enters the denominator; `p_clean`
-  never escapes the Fréchet–Hoeffding bounds over a 60-point grid; reported
-  quantiles are ordered and the median matches `ln2 / q` in closed form; a
-  fully clean pool (`q = 1`) does not raise; `--filter-recall` defaults to
-  uninformative; an undersized pool yields the required `T_raw` instead of a
-  bare `n/a`; and the README's declared defaults are diffed against the
-  parser.
-- The import-sensitive invocation modes (standalone from `ecurve/` and
-  `python -m ecurve.…`) import and run, under `test_A3_*`.
+- RFC 6979: 3/3 official secp256k1 + SHA-256 test vectors exercised by the
+suite. - RIPEMD-160 / HASH160: known-answer digests for `b"abc"` pinned,
+exercising the pure-Python fallback path (§3.8). (The broader "all official
+vectors + block- boundary fuzzing" verification of `_ripemd160.py` is a
+development-time check, not part of this suite.) - `verify(sign(m)) = True` on
+both curves over repeated trials. - Generated public keys lie on the curve, on
+both parameter sets. - `n·G = O`; `scalar_multiply` returns `None` (never
+`(0,0)`) for infinity. - `P + (−P) = O` returns `None` and `verify_signature`
+survives it. - **Curve parameters themselves** (the *Curve parameters and
+structural invariants* section, §3.3): `G` on the curve, `n·G = O`, `(n−1)·G =
+−G`, `n` and `p` prime, non-singular, Hasse bound, and a `p − n` gap wide
+enough to make the coordinate path reachable. - **Negative cases**, which
+mutation testing showed were entirely absent: `is_on_curve` rejects off-curve
+points (`test_is_on_curve_rejects_off_curve_points`); `verify_signature`
+rejects an off-curve or `None` public key *before* touching scalar
+multiplication, which is what stops invalid-curve attacks
+(`test_verify_validates_key_before_touching_arithmetic`); a tampered `r`, `s`
+or `z` is rejected rather than merely returning some bool
+(`test_verify_rejects_tampered_signature`). - **Package surface** (the *Package
+surface and re-exports* section, §7.1): every name in `ecurve.__all__`
+resolves, re-exports are the same objects as the modules' and `__init__.py`'s
+import list is diffed against the modules statically. -
+`magnitude_distribution` sums to 1 on both curves; `k_magnitude` doctests pass;
+and the predictor's degeneracy is asserted curve-independently — one magnitude
+covers at least 88 of the 90 leading pairs
+(`test_predictor_is_effectively_constant`). - Argument validation rejects
+out-of-range inputs on both entry points: `generate_transaction_list.py`
+(`--keys 0`, negative `--keys`, `--private-key` outside `[1, n-1]`,
+`--ml-exp-accuracy` outside `[0, 1]`, `--min-start-range ≥ n`) and
+`ecdsa_attack_complexity.py` (non-positive `--safety-factor`,
+`--t-per-run-sec`, `--curve-bits`, `--leak-bits`, `--cores`, `--p-ml-step` and
+`--t-run-doubling-dims`; negative `--dim-overhead`; `--p-mag` and
+`--p-reduction-success` outside their ranges; `--correlation` outside `[-1,
+1]`). - Cost-model structure, in the cost-model sections (§3.10): the
+unlimited-supply case equals the i.i.d. limit `p_clean^m_req`; the Bayes filter
+leaves purity unchanged when uninformative, raises it when informative, and
+rejects inconsistent `(pass_rate, recall, p_clean)` triples;
+`--filter-pass-rate` demonstrably reaches `runs`; per-run cost doubles every
+`D` dimensions and is flat without `D`; `--p-reduction-success` enters the
+denominator; `p_clean` never escapes the Fréchet–Hoeffding bounds over a
+60-point grid; reported quantiles are ordered and the median matches `ln2 / q`
+in closed form; a fully clean pool (`q = 1`) does not raise; `--filter-recall`
+defaults to uninformative; an undersized pool yields the required `T_raw`
+instead of a bare `n/a`; and the README's declared defaults are diffed against
+the parser. - The import-sensitive invocation modes (standalone from `ecurve/`
+and `python -m ecurve.…`) import and run, in the *Import layout and invocation
+modes* section.
 
 ### 7.1 Two failure modes the suite cannot test, and what replaces them
 
@@ -769,19 +777,20 @@ plausible defects and counting which tests notice:
 | Injected defect | Tests that catch it |
 | --- | --- |
 | Drop `x₂` from `x₃ = λ² − x₁ − x₂` | 5 |
-| `is_on_curve` returns `True` unconditionally | 2 (`test_G10`, `test_G11`) |
-| `r_y = y % n` (bug B6) | 1 (`test_B6`) |
-| Drop the on-curve guard in `verify_signature` | 1 (`test_G11`) |
-| Drop `+ a` from the doubling slope | 1 (`test_G9`, §3.3.1) |
-| `3x² + 2a` — subtle corruption of the same term | 1 (`test_G9`) |
-| `3x² − a` — subtle corruption of the same term | 1 (`test_G9`) |
+| `is_on_curve` returns `True` unconditionally | 2 (`test_is_on_curve_rejects_off_curve_points`, `test_verify_validates_key_before_touching_arithmetic`) |
+| `r_y = y % n` (bug B6) | 1 (`test_ry_not_reduced_mod_n`) |
+| Drop the on-curve guard in `verify_signature` | 1 (`test_verify_validates_key_before_touching_arithmetic`) |
+| Drop `+ a` from the doubling slope | 1 (`test_doubling_slope_consumes_the_a_coefficient`, §3.3.1) |
+| `3x² + 2a` — subtle corruption of the same term | 1 (`test_doubling_slope_consumes_the_a_coefficient`) |
+| `3x² − a` — subtle corruption of the same term | 1 (`test_doubling_slope_consumes_the_a_coefficient`) |
 
-The last three rows are caught by `test_G9` alone: with `a = 0` on both shipped
-curves, they are arithmetically invisible everywhere else in the suite.
+The last three rows are caught by
+`test_doubling_slope_consumes_the_a_coefficient` alone: with `a = 0` on both
+shipped curves, they are arithmetically invisible everywhere else in the suite.
 
 Two further mutations are **not** caught, and both are provably **equivalent
-mutants** rather than coverage gaps — `test_G13` pins the property that makes
-them so:
+mutants** rather than coverage gaps — `test_equivalent_mutants_are_documented`
+pins the property that makes them so:
 
 - `point_add`'s inverse test. The old form `x₁ = x₂ and y₁ ≠ y₂` diverges from
   `(y₁ + y₂) ≡ 0 (mod p)` only at `y₁ = y₂ = 0`, i.e. a point of order two. A
@@ -795,32 +804,30 @@ them so:
 
 - **Not constant-time, not side-channel resistant, not production code.** The
   ladder is deliberately non-constant-time (§3.5). Do not use any of this to
-  protect real funds.
-- Test-mode `z` is not bound to the message (§3.8), so `mode="test"` is not a
-  signing oracle. This also means the test curve cannot exercise RFC 6979, which
-  leaves the most delicate cryptographic code in the repository covered only by
-  the 200×-slower curve (§3.3.1).
-- **Neither shipped curve exercises the `a` term** in the doubling slope, since
-  both set `a = 0`. `test_G9` pins the *formula* differentially (§3.3.1), but no
-  test pins the group-law *invariants* for `a ≠ 0` — that would need parameters
-  which genuinely are such a curve. Anyone reusing `ecurve/` with `a ≠ 0` is
-  running a path the shipped parameters never touch.
-- `mode` branching appears in ~10 places; each is a site where the two curves can
-  drift apart.
-- `maximum_transaction_count = (n−1)⁴` has no defined security meaning.
-- `ecurve/__init__.py` is a hand-maintained export list, and so is this README.
-  Both have drifted from the code before. The machine-checked parts are the
-  cost-model defaults block (§3.10) and the package surface (§7.1); the prose
-  around them is not pinned by anything and should be treated as the least
-  trustworthy artefact in the repository.
-- The cost model's `t_per_run_sec` is uncalibrated unless you pass it, and the
+  protect real funds. - Test-mode `z` is not bound to the message (§3.8), so
+  `mode="test"` is not a signing oracle. This also means the test curve cannot
+  exercise RFC 6979, which leaves the most delicate cryptographic code in the
+  repository covered only by the 200×-slower curve (§3.3.1). - **Neither
+  shipped curve exercises the `a` term** in the doubling slope, since both set
+  `a = 0`. `test_doubling_slope_consumes_the_a_coefficient` pins the *formula*
+  differentially (§3.3.1), but no test pins the group-law *invariants* for `a ≠
+  0` — that would need parameters which genuinely are such a curve. Anyone
+  reusing `ecurve/` with `a ≠ 0` is running a path the shipped parameters never
+  touch. - `mode` branching appears in ~10 places; each is a site where the two
+  curves can drift apart. - `maximum_transaction_count = (n−1)⁴` has no defined
+  security meaning. - `ecurve/__init__.py` is a hand-maintained export list,
+  and so is this README. Both have drifted from the code before. The
+  machine-checked parts are the cost-model defaults block (§3.10) and the
+  package surface (§7.1); the prose around them is not pinned by anything and
+  should be treated as the least trustworthy artefact in the repository. - The
+  cost model's `t_per_run_sec` is uncalibrated unless you pass it, and the
   dimension-scaling model is opt-in via `--t-run-doubling-dims`; without it,
-  rows for different `L` are not comparable and the tool says so (§3.10).
-- The cost model omits confidence ranking, has no lattice-theoretic content in
-  `safety_factor`, and assumes reductions on clean subsets always succeed. It is
-  therefore **not a bound in either direction** (§3.10.1).
-- **The predictor is simulated (§1).** This is not a code defect to be patched;
-  it is the methodological boundary of the project.
+  rows for different `L` are not comparable and the tool says so (§3.10). - The
+  cost model omits confidence ranking, has no lattice-theoretic content in
+  `safety_factor`, and assumes reductions on clean subsets always succeed. It
+  is therefore **not a bound in either direction** (§3.10.1). - **The predictor
+  is simulated (§1).** This is not a code defect to be patched; it is the
+  methodological boundary of the project.
 
 ---
 

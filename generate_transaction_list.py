@@ -430,11 +430,23 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    # Reproducibility (README section 5, CI "test curve corpus (reproducible)")
+    # requires seeding EVERY source of randomness, not just the module-level
+    # ``random`` used for the boolean mask and the test-mode message integer.
+    # The private keys and, on the test curve, z and k are drawn inside
+    # ``Secp256k1``; with no rng passed it defaults to ``SystemRandom`` for z/k
+    # and ``secrets`` for keys, neither of which ``random.seed`` can influence.
+    # So the previous code seeded the mask but left keys and nonces
+    # non-deterministic, and two runs with the same --seed did NOT match.
+    # Passing a seeded ``random.Random`` wires the curve's own rng into the same
+    # determinism (secp256k1.py already honours an explicit rng end to end).
+    rng = None
     if args.seed is not None:
         random.seed(args.seed)
+        rng = random.Random(args.seed)
 
     curve = _select_curve(args.curve_mode)
-    ec = Secp256k1(curve)
+    ec = Secp256k1(curve, rng=rng)
     cfg = _build_report_config(curve)
 
     os.makedirs(args.outdir, exist_ok=True)

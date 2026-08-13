@@ -20,9 +20,12 @@ nothing here and exits 5. To make the bare form work, add to pytest.ini:
     python_files = run_tests.py test_*.py
 
 Tests are grouped into ``TestCase`` classes by concern; each class docstring
-supplies the section heading in the table. Method names carry the audit ID they
-regress (A1, B3, C8, F2, G4, ...); tests without an ID are invariants that were
-never tied to a specific defect.
+supplies the section heading in the table. Method names are plain descriptions
+of the invariant under test. (Earlier revisions prefixed each name with an
+audit ID -- A1, B3, C8, F2, G4, ... -- and the table printed it in a dedicated
+column; both have been removed. A few tests still mention their historical ID
+in their own docstring or a section comment, but it is no longer part of any
+name.)
 
 WHY SOME VALUES ARE PINNED AND OTHERS DERIVED
 =============================================
@@ -243,36 +246,36 @@ ALL_CURVES = (TEST_PARAMS, LEGACY_PARAMS)
 class TestCurveParameters(unittest.TestCase):
     """Curve parameters and structural invariants"""
 
-    def test_G1_generator_lies_on_curve(self):
+    def test_generator_lies_on_curve(self):
         for c in ALL_CURVES:
             with self.subTest(curve=c.name):
                 x, y = c.g
                 self.assertEqual((y * y - x**3 - c.a * x - c.b) % c.p, 0)
 
-    def test_G2_order_annihilates_generator(self):
+    def test_order_annihilates_generator(self):
         for c in ALL_CURVES:
             with self.subTest(curve=c.name):
                 self.assertIsNone(Secp256k1(c).scalar_multiply(c.n, c.g))
 
-    def test_G3_order_is_prime(self):
+    def test_order_is_prime(self):
         for c in ALL_CURVES:
             with self.subTest(curve=c.name):
                 self.assertTrue(is_probable_prime(c.n),
                                 f"{c.name}: n = {c.n} is composite; the "
                                 f"cofactor-1 assumption fails")
 
-    def test_G4_field_is_prime(self):
+    def test_field_is_prime(self):
         for c in ALL_CURVES:
             with self.subTest(curve=c.name):
                 self.assertTrue(is_probable_prime(c.p))
 
-    def test_G5_curve_is_non_singular(self):
+    def test_curve_is_non_singular(self):
         for c in ALL_CURVES:
             with self.subTest(curve=c.name):
                 self.assertNotEqual((4 * c.a**3 + 27 * c.b**2) % c.p, 0,
                                     f"{c.name}: discriminant vanishes")
 
-    def test_G6_hasse_bound_holds(self):
+    def test_hasse_bound_holds(self):
         for c in ALL_CURVES:
             with self.subTest(curve=c.name):
                 t = c.p + 1 - c.n            # Frobenius trace
@@ -280,14 +283,14 @@ class TestCurveParameters(unittest.TestCase):
                                      f"{c.name}: |t| exceeds the Hasse bound, "
                                      f"so n cannot be this curve's order")
 
-    def test_G7_generator_inverse_is_consistent(self):
+    def test_generator_inverse_is_consistent(self):
         for c in ALL_CURVES:
             with self.subTest(curve=c.name):
                 ec = Secp256k1(c)
                 self.assertEqual(ec.scalar_multiply(c.n - 1, c.g),
                                  (c.g[0], (-c.g[1]) % c.p))
 
-    def test_G8_coordinate_overflow_is_reachable_on_test_curve(self):
+    def test_coordinate_overflow_is_reachable_on_test_curve(self):
         """The p - n gap must be wide enough to actually exercise.
 
         A y coordinate at or above n is what a `% n` bug would corrupt. On
@@ -300,7 +303,7 @@ class TestCurveParameters(unittest.TestCase):
                            f"p - n = {c.p - c.n} leaves P(y >= n) = {gap:.2e}; "
                            f"too rare to exercise the coordinate path")
 
-    def test_G9_doubling_slope_consumes_the_a_coefficient(self):
+    def test_doubling_slope_consumes_the_a_coefficient(self):
         """The `+ a` term in the doubling slope must be exercised by something.
 
         lambda = (3x^2 + a) / 2y. Both shipped curves set a = 0 -- secp256k1 by
@@ -350,7 +353,7 @@ class TestCurveParameters(unittest.TestCase):
                                      "perturbing the probe leaked into the "
                                      "unmodified instance")
 
-    def test_G9b_shipped_curves_leave_a_untested_behaviourally(self):
+    def test_shipped_curves_leave_a_untested_behaviourally(self):
         """Record the residual gap so it cannot quietly become an assumption.
 
         G9 pins the formula. It cannot pin the group-law invariants for a != 0,
@@ -370,7 +373,7 @@ class TestCurveParameters(unittest.TestCase):
                                  "reported above; the skip logic is broken")
 
 
-    def test_G10_is_on_curve_rejects_off_curve_points(self):
+    def test_is_on_curve_rejects_off_curve_points(self):
         """A membership test that never says "no" is not a membership test.
 
         Mutation-found gap: replacing the body of ``is_on_curve`` with
@@ -387,7 +390,7 @@ class TestCurveParameters(unittest.TestCase):
                 self.assertTrue(ec.is_on_curve(pub))
                 self.assertFalse(ec.is_on_curve((x, (y + 1) % c.p)))
 
-    def test_G11_verify_validates_key_before_touching_arithmetic(self):
+    def test_verify_validates_key_before_touching_arithmetic(self):
         """An off-curve public key must be rejected by validation, not by luck.
 
         Mutation-found gap: deleting the ``is_on_curve`` guard from
@@ -408,7 +411,7 @@ class TestCurveParameters(unittest.TestCase):
         self.assertFalse(ec.verify_signature((1, 0), sig))
         self.assertFalse(ec.verify_signature(None, sig))
 
-    def test_G12_verify_rejects_tampered_signature(self):
+    def test_verify_rejects_tampered_signature(self):
         """C8 only asserted that a bool came back; require the right bool."""
         ec = Secp256k1(TEST_PARAMS)
         d, pub = ec.generate_keypair(valid_test_key())
@@ -424,7 +427,7 @@ class TestCurveParameters(unittest.TestCase):
             with self.subTest(tamper=label):
                 self.assertFalse(ec.verify_signature(pub, bad))
 
-    def test_G13_equivalent_mutants_are_documented(self):
+    def test_equivalent_mutants_are_documented(self):
         """Two plausible defects are provably unreachable on these curves.
 
         Mutation testing flags them as uncaught; they are equivalent mutants,
@@ -457,7 +460,7 @@ class TestCurveParameters(unittest.TestCase):
 class TestPackageSurface(unittest.TestCase):
     """Package surface and re-exports"""
 
-    def test_H1_every_name_in_all_resolves(self):
+    def test_every_name_in_all_resolves(self):
         """__all__ must not promise names the package cannot deliver.
 
         `from ecurve import *` fails loudly on a stale entry; a plain
@@ -468,7 +471,7 @@ class TestPackageSurface(unittest.TestCase):
         self.assertEqual(missing, [],
                          f"ecurve.__all__ lists names that do not exist: {missing}")
 
-    def test_H2_reexports_are_the_same_objects(self):
+    def test_reexports_are_the_same_objects(self):
         """A re-export must be the module's object, not a stale copy."""
         import ecurve.secp256k1 as S
         for name in ("Secp256k1", "TEST_PARAMS", "LEGACY_PARAMS",
@@ -476,7 +479,7 @@ class TestPackageSurface(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIs(getattr(ecurve, name), getattr(S, name))
 
-    def test_H3_init_import_list_matches_the_modules(self):
+    def test_init_import_list_matches_the_modules(self):
         """Read __init__.py statically and check every imported name exists.
 
         This is the check that would have caught `int_to_bytes`: the name was
@@ -505,7 +508,7 @@ class TestPackageSurface(unittest.TestCase):
                                   f"{node.module}.py, which does not define it")
         self.assertGreater(checked, 0, "no relative imports found to check")
 
-    def test_H4_all_entries_are_sorted_into_the_import_list(self):
+    def test_all_entries_are_sorted_into_the_import_list(self):
         """Every non-dunder name in __all__ must actually be imported."""
         import ast
         init = os.path.join(PKG, "__init__.py")
@@ -524,7 +527,7 @@ class TestPackageSurface(unittest.TestCase):
                                 f"__all__ exports '{name}' but __init__.py "
                                 f"neither imports nor defines it")
 
-    def test_H5_version_is_declared(self):
+    def test_version_is_declared(self):
         self.assertRegex(getattr(ecurve, "__version__", ""), r"^\d+\.\d+")
 
 
@@ -579,7 +582,7 @@ class TestSigning(unittest.TestCase):
                     _, pub = ec.generate_keypair()
                     self.assertTrue(ec.is_on_curve(pub))
 
-    def test_B6_ry_not_reduced_mod_n(self):
+    def test_ry_not_reduced_mod_n(self):
         """r_y is the raw affine coordinate (mod p), never reduced mod n.
 
         Strengthened: the old version merely recorded whether a y >= n ever
@@ -602,30 +605,30 @@ class TestSigning(unittest.TestCase):
                            "no coordinate reached y >= n; the regression this "
                            "test exists for was never actually exercised")
 
-    def test_C8_verify_infinity_no_crash(self):
+    def test_verify_infinity_no_crash(self):
         ec = Secp256k1(TEST_PARAMS)
         _d, pub = ec.generate_keypair(valid_test_key())
         z, r, ry, s, k, kinv = ec.sign_message(valid_test_key(), b"m", 1)
         tampered = (z, r, ry, (s + 1) % TEST_PARAMS.n, k, kinv)
         self.assertIn(ec.verify_signature(pub, tampered), (True, False))
 
-    def test_C8_point_add_inverse_returns_none(self):
+    def test_point_add_inverse_returns_none(self):
         ec = Secp256k1(TEST_PARAMS)
         p1 = ec.scalar_multiply(5, TEST_PARAMS.g)
         p2 = ec.inverse_point(p1, TEST_PARAMS.p)
         self.assertIsNone(ec.point_add(p1, p2))
 
-    def test_C10_candidate_stream_advances(self):
+    def test_candidate_stream_advances(self):
         """A rejected deterministic nonce must yield a NEW value, not loop."""
         gen = Secp256k1(LEGACY_PARAMS)._rfc6979_k_candidates(0x1, 42)
         self.assertNotEqual(next(gen), next(gen))
 
-    def test_E14_scalar_mult_infinity_is_none(self):
+    def test_scalar_mult_infinity_is_none(self):
         ec = Secp256k1(TEST_PARAMS)
         self.assertIsNone(ec.scalar_multiply(TEST_PARAMS.n, TEST_PARAMS.g))
         self.assertIs(ec.is_on_curve(None), True)
 
-    def test_E18_unique_keys_bounded(self):
+    def test_unique_keys_bounded(self):
         ec = Secp256k1(TEST_PARAMS)
         keys = ec.generate_unique_keys(20, 10)
         self.assertEqual(len(keys), 20)
@@ -633,7 +636,7 @@ class TestSigning(unittest.TestCase):
         with self.assertRaises(ValueError):
             ec.generate_unique_keys(TEST_PARAMS.n + 5, 10)
 
-    def test_C12_hash160(self):
+    def test_hash160(self):
         """HASH160(x) = RIPEMD160(SHA256(x)), including the pure-Python path.
 
         Pinned literal: an external known-answer vector.
@@ -649,12 +652,12 @@ class TestSigning(unittest.TestCase):
 class TestInvocationModes(unittest.TestCase):
     """Import layout and invocation modes"""
 
-    def test_A1_package_imports(self):
+    def test_package_imports(self):
         import importlib
         self.assertTrue(hasattr(
             importlib.import_module("generate_transaction_list"), "main"))
 
-    def test_A3_standalone_secp256k1_from_inside_package_dir(self):
+    def test_standalone_secp256k1_from_inside_package_dir(self):
         """`python secp256k1.py` from inside ecurve/ must work.
 
         The expected order is read from TEST_PARAMS instead of being pasted in:
@@ -665,18 +668,18 @@ class TestInvocationModes(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), str(TEST_PARAMS.n))
 
-    def test_A3_standalone_k_magnitude_from_inside_package_dir(self):
+    def test_standalone_k_magnitude_from_inside_package_dir(self):
         r = _subprocess(["k_magnitude.py", "--curve-mode", "test",
                          "--digits", "47"], cwd=PKG)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("magnitude", r.stdout)
 
-    def test_A3_module_mode_from_root(self):
+    def test_module_mode_from_root(self):
         r = _subprocess(["-m", "ecurve.k_magnitude", "--curve-mode", "legacy",
                          "--digits", "47"], cwd=ROOT)
         self.assertEqual(r.returncode, 0, r.stderr)
 
-    def test_A3_ripemd160_fallback_importable_both_ways(self):
+    def test_ripemd160_fallback_importable_both_ways(self):
         r = _subprocess(["-c", "from _ripemd160 import ripemd160; "
                                "print(ripemd160(b'abc').hex())"], cwd=PKG)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -690,10 +693,10 @@ class TestInvocationModes(unittest.TestCase):
 class TestGeneratorReport(unittest.TestCase):
     """Transaction generator and report"""
 
-    def test_A2_demo_runs(self):
+    def test_demo_runs(self):
         _quiet(G._print_once_demo, Secp256k1(TEST_PARAMS))
 
-    def test_B3_accuracy_denominator(self):
+    def test_accuracy_denominator(self):
         """The accuracy denominator must be the rows produced, not a plan."""
         rows, stats = _quiet(
             G._collect_rows, Secp256k1(TEST_PARAMS), total_key_count=5,
@@ -708,7 +711,7 @@ class TestGeneratorReport(unittest.TestCase):
         self.assertEqual(expected, 100.0,
                          "at ml_expected_accuracy=1.0 every row should match")
 
-    def test_B3b_denominator_survives_skipped_rows(self):
+    def test_denominator_survives_skipped_rows(self):
         """Stronger form: force a skip so plan and reality provably diverge.
 
         The weaker test passes even against a partial fix using
@@ -737,7 +740,7 @@ class TestGeneratorReport(unittest.TestCase):
                          "a planned figure would read 10 and understate accuracy")
         self.assertEqual(_pct(stats["ml_accuracy_k_val"]), 100.0)
 
-    def test_D_generator_rejects_bad_args(self):
+    def test_generator_rejects_bad_args(self):
         for bad in (["--keys", "0"], ["--keys", "-3"],
                     ["--ml-exp-accuracy", "2.0"], ["--private-key", "-5"]):
             with self.subTest(args=bad), contextlib.redirect_stderr(io.StringIO()):
@@ -751,13 +754,13 @@ class TestGeneratorReport(unittest.TestCase):
 class TestMagnitudePredictor(unittest.TestCase):
     """Magnitude predictor"""
 
-    def test_C11_single_digit_message(self):
+    def test_single_digit_message(self):
         """A single-digit k must raise a named error, not crash deep down."""
         with self.assertRaises(ValueError) as ctx:
             predict_magnitude("7", LEGACY_PARAMS.n)
         self.assertIn("at least two", str(ctx.exception))
 
-    def test_E16_doctests(self):
+    def test_doctests(self):
         import doctest
         res = doctest.testmod(km, verbose=False)
         self.assertEqual(res.failed, 0,
@@ -765,13 +768,13 @@ class TestMagnitudePredictor(unittest.TestCase):
                          f"TEST_PARAMS examples are curve-specific and must be "
                          f"updated whenever the curve changes")
 
-    def test_E21_distribution_conditioned_sums_to_one(self):
+    def test_distribution_conditioned_sums_to_one(self):
         for c in ALL_CURVES:
             with self.subTest(curve=c.name):
                 dist = magnitude_distribution(47, c.n)
                 self.assertAlmostEqual(sum(dist.values()), 1.0, places=12)
 
-    def test_E21b_predictor_is_effectively_constant(self):
+    def test_predictor_is_effectively_constant(self):
         """The documented negative result, stated curve-independently.
 
         Whatever the curve, one magnitude dominates almost every leading pair:
@@ -794,13 +797,13 @@ class TestMagnitudePredictor(unittest.TestCase):
 class TestCostModelCore(unittest.TestCase):
     """Cost model: core formulas and validation"""
 
-    def test_B4_duration_years(self):
+    def test_duration_years(self):
         out = A.fmt_duration(40.0)                 # 1e40 seconds
         self.assertTrue(out.endswith("yr"))
         exp = float(out[2:].split()[0])
         self.assertAlmostEqual(exp, 40.0 - A._LOG10_SEC_PER_YEAR, delta=0.05)
 
-    def test_B4b_duration_precision_is_optional(self):
+    def test_duration_precision_is_optional(self):
         """`precision` must stay optional: "orders" is the only defensible
         default, since the model cannot support more."""
         self.assertEqual(A.fmt_duration(40.0), A.fmt_duration(40.0, "orders"))
@@ -809,21 +812,21 @@ class TestCostModelCore(unittest.TestCase):
         self.assertEqual(A.fmt_duration(None), "--")
         self.assertEqual(A.fmt_duration(-3.0), "<1 s")
 
-    def test_B5_t_per_run_sec_default_placeholder(self):
+    def test_t_per_run_sec_default_placeholder(self):
         args = A.parse_args([])
         self.assertEqual(args.t_per_run_sec, 2.0)
         self.assertIsNone(args.t_run_doubling_dims,
                           "dimension scaling must stay opt-in: switching it on "
                           "silently would change every published figure")
 
-    def test_B7_m_req_formula(self):
+    def test_m_req_formula(self):
         """Pinned formula: m_req = ceil(ceil(bits / L) * safety_factor)."""
         for L in (5, 6, 7, 8):
             with self.subTest(L=L):
                 self.assertEqual(A.required_clean_signatures(256, L, 1.3),
                                  math.ceil(math.ceil(256 / L) * 1.3))
 
-    def test_D_complexity_rejects_bad_args(self):
+    def test_complexity_rejects_bad_args(self):
         """--surplus is deliberately absent here: v2 removed the flag (F1), so
         a negative value is rejected because the option is gone, not because
         its range is validated. Asserting it would pass for the wrong reason."""
@@ -846,27 +849,27 @@ class TestCostModelCore(unittest.TestCase):
 class TestCostModelSupply(unittest.TestCase):
     """Cost model: signature supply (F1)"""
 
-    def test_F1_surplus_flag_removed_with_explanation(self):
+    def test_surplus_flag_removed_with_explanation(self):
         err = io.StringIO()
         with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
             A.parse_args(["--surplus", "2.0"])
         self.assertIn("removed in v2", err.getvalue(),
                       "removing a flag without saying why reads like a typo")
 
-    def test_F1_unlimited_supply_is_the_iid_limit(self):
+    def test_unlimited_supply_is_the_iid_limit(self):
         m_req, p = 56, 0.738
         self.assertAlmostEqual(
             A.log10_success_per_draw(None, m_req, None, p, 1.0),
             m_req * math.log10(p), places=12)
 
-    def test_F1_pool_params_rejected_without_scarce_supply(self):
+    def test_pool_params_rejected_without_scarce_supply(self):
         for bad in (["--t-raw", "100"], ["--filter-pass-rate", "0.5"],
                     ["--filter-recall", "0.5"]):
             with self.subTest(args=bad), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit):
                     A.parse_args(bad)
 
-    def test_F1_scarce_supply_requires_t_raw(self):
+    def test_scarce_supply_requires_t_raw(self):
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             A.parse_args(["--supply", "scarce"])
 
@@ -877,29 +880,29 @@ class TestCostModelSupply(unittest.TestCase):
 class TestCostModelFilter(unittest.TestCase):
     """Cost model: Bayesian pre-filter (F2)"""
 
-    def test_F2_uninformative_filter_leaves_purity_unchanged(self):
+    def test_uninformative_filter_leaves_purity_unchanged(self):
         post, fpr = A.bayes_post_clean(0.70, 0.5, 0.5)
         self.assertAlmostEqual(post, 0.70, places=12,
                                msg="a blind filter must not change purity")
         self.assertAlmostEqual(fpr, 0.5, places=12)
 
-    def test_F2_informative_filter_raises_purity(self):
+    def test_informative_filter_raises_purity(self):
         post, _ = A.bayes_post_clean(0.70, 0.80, 0.95)
         self.assertGreater(post, 0.70)
         self.assertLess(post, 1.0)
 
-    def test_F2_implied_false_pass_rate_obeys_total_probability(self):
+    def test_implied_false_pass_rate_obeys_total_probability(self):
         p_clean, pi, recall = 0.70, 0.80, 0.95
         _, fpr = A.bayes_post_clean(p_clean, pi, recall)
         self.assertAlmostEqual(p_clean * recall + (1 - p_clean) * fpr, pi,
                                places=12)
 
-    def test_F2_inconsistent_filter_is_rejected(self):
+    def test_inconsistent_filter_is_rejected(self):
         """pass_rate below p_clean*recall implies P(clean|pass) > 1."""
         with self.assertRaises(ValueError):
             A.bayes_post_clean(0.90, 0.50, 1.0)
 
-    def test_F2_filter_pass_rate_actually_changes_the_answer(self):
+    def test_filter_pass_rate_actually_changes_the_answer(self):
         """The v1 inertness regression, pinned: sweeping --filter-pass-rate
         over a 20x range left every reported figure byte-identical."""
         common = ["--supply", "scarce", "--p-ml-start", "90", "--p-ml-stop",
@@ -915,16 +918,16 @@ class TestCostModelFilter(unittest.TestCase):
 class TestCostModelDimension(unittest.TestCase):
     """Cost model: dimension and reduction success (F3, F4)"""
 
-    def test_F3_t_run_doubles_every_D_dimensions(self):
+    def test_t_run_doubles_every_D_dimensions(self):
         lo = A.log10_t_run(58, 2.0, 58, 12)
         hi = A.log10_t_run(70, 2.0, 58, 12)
         self.assertAlmostEqual(hi - lo, math.log10(2.0), places=12)
 
-    def test_F3_t_run_flat_without_doubling_dims(self):
+    def test_t_run_flat_without_doubling_dims(self):
         self.assertEqual(A.log10_t_run(200, 2.0, 58, None),
                          A.log10_t_run(44, 2.0, 58, None))
 
-    def test_F3_dimension_is_load_bearing(self):
+    def test_dimension_is_load_bearing(self):
         """Different L must cost different per-run time once calibrated."""
         out = _cli(["--leak-bits", "4", "8", "--t-run-doubling-dims", "12",
                     "--t-run-dim-ref", "58", "--p-ml-start", "90",
@@ -934,12 +937,12 @@ class TestCostModelDimension(unittest.TestCase):
         self.assertNotEqual(float(times[0]), float(times[1]),
                             "`dimension` is decorative again")
 
-    def test_F3_flat_model_warns_against_cross_L_comparison(self):
+    def test_flat_model_warns_against_cross_L_comparison(self):
         out = _cli(["--leak-bits", "4", "6", "8", "--p-ml-start", "90",
                     "--p-ml-stop", "90", "--no-legend"])
         self.assertIn("Do not compare rows across L", out)
 
-    def test_F4_p_reduction_success_enters_the_denominator(self):
+    def test_p_reduction_success_enters_the_denominator(self):
         full = A.log10_success_per_draw(None, 56, None, 0.738, 1.0)
         half = A.log10_success_per_draw(None, 56, None, 0.738, 0.5)
         self.assertAlmostEqual(full - half, math.log10(2.0), places=12,
@@ -952,22 +955,22 @@ class TestCostModelDimension(unittest.TestCase):
 class TestCostModelParameterisation(unittest.TestCase):
     """Cost model: p_m parameterisation (F5)"""
 
-    def test_F5_correlation_rejected_in_conditional_mode(self):
+    def test_correlation_rejected_in_conditional_mode(self):
         err = io.StringIO()
         with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
             A.parse_args(["--correlation", "0.2"])
         self.assertIn("double-count", err.getvalue())
 
-    def test_F5_marginal_mode_accepts_correlation(self):
+    def test_marginal_mode_accepts_correlation(self):
         args = A.parse_args(["--p-mag-mode", "marginal", "--correlation", "0.126"])
         self.assertEqual(args.correlation, 0.126)
 
-    def test_F5_positive_correlation_raises_p_clean(self):
+    def test_positive_correlation_raises_p_clean(self):
         """rho > 0 means the predictors fail together: the attack gets easier."""
         self.assertGreater(A.joint_clean_probability(0.90, 0.8888, 0.126),
                            A.joint_clean_probability(0.90, 0.8888, 0.0))
 
-    def test_F5_p_clean_always_within_frechet_bounds(self):
+    def test_p_clean_always_within_frechet_bounds(self):
         for p_b in (0.30, 0.50, 0.90, 0.99):
             for p_m in (0.30, 0.50, 0.82, 0.99):
                 for rho in (-1.0, -0.5, 0.0, 0.5, 1.0):
@@ -987,25 +990,25 @@ class TestCostModelDistribution(unittest.TestCase):
         self.q = A.log10_success_per_draw(None, 56, None, 0.738, 1.0)
         self.comps = [(1.0, self.q)]
 
-    def test_F6_quantiles_are_ordered(self):
+    def test_quantiles_are_ordered(self):
         p05, p50, p95 = (A.runs_quantile(t, self.comps) for t in (0.05, 0.5, 0.95))
         self.assertLess(p05, p50)
         self.assertLess(p50, p95)
 
-    def test_F6_median_matches_closed_form(self):
+    def test_median_matches_closed_form(self):
         """Median of Geometric(q) is ln2 / q."""
         got = A.runs_quantile(0.50, self.comps)
         want = math.log10(-math.log(0.5)) - self.q
         self.assertAlmostEqual(got, want, places=6)
 
-    def test_F6_geometric_band_width_is_exact(self):
+    def test_geometric_band_width_is_exact(self):
         """The p05-p95 span is a constant, independent of q."""
         width = (A.runs_quantile(0.95, self.comps)
                  - A.runs_quantile(0.05, self.comps))
         self.assertAlmostEqual(
             width, math.log10(math.log(0.05) / math.log(0.95)), places=6)
 
-    def test_F6_scarce_pool_band_is_wider_than_iid(self):
+    def test_scarce_pool_band_is_wider_than_iid(self):
         """Pool-composition randomness must widen the band: the Jensen error
         made visible, which a single point estimate hid entirely."""
         iid = (A.runs_quantile(0.95, self.comps)
@@ -1023,35 +1026,35 @@ class TestCostModelDistribution(unittest.TestCase):
 class TestCostModelReporting(unittest.TestCase):
     """Cost model: reporting and hygiene (F7, F8)"""
 
-    def test_F7_default_precision_is_orders(self):
+    def test_default_precision_is_orders(self):
         self.assertEqual(A.parse_args([]).precision, "orders")
 
-    def test_F7_unvalidated_assumptions_are_printed(self):
+    def test_unvalidated_assumptions_are_printed(self):
         out = _cli(["--p-ml-start", "90", "--p-ml-stop", "90"])
         self.assertIn("Unvalidated assumptions", out)
         self.assertIn("partial ECDLP", out,
                       "the load-bearing caveat must travel with the table")
 
-    def test_F8_accuracy_sweep_grid_does_not_drift(self):
+    def test_accuracy_sweep_grid_does_not_drift(self):
         for step in (1.0, 0.1, 0.25, 0.3, 0.7):
             with self.subTest(step=step):
                 self.assertEqual(len(A.accuracy_sweep(80.0, 99.0, step)),
                                  int((99.0 - 80.0) / step + 1e-9) + 1)
 
-    def test_F8_legend_reports_every_swept_L(self):
+    def test_legend_reports_every_swept_L(self):
         """v1's legend printed only leak_bits[0] above three different tables."""
         out = _cli(["--leak-bits", "4", "6", "8", "--p-ml-start", "90",
                     "--p-ml-stop", "90"])
         self.assertIn("[4, 6, 8]", out)
 
-    def test_F8_fully_clean_pool_does_not_raise(self):
+    def test_fully_clean_pool_does_not_raise(self):
         """Regression: log1p(-q) is a domain error at q = 1, which a wholly
         clean pool reaches exactly."""
         out = _cli(["--supply", "scarce", "--t-raw", "60", "--p-mag", "99",
                     "--p-ml-start", "99", "--p-ml-stop", "99", "--no-legend"])
         self.assertIn("0.9801", out)
 
-    def test_F8_filter_recall_defaults_to_uninformative(self):
+    def test_filter_recall_defaults_to_uninformative(self):
         """Regression: a recall default of 1.0 makes most pass rates
         inconsistent. The neutral default is recall = pass_rate."""
         args = A.parse_args(["--supply", "scarce", "--t-raw", "100",
@@ -1062,14 +1065,14 @@ class TestCostModelReporting(unittest.TestCase):
                     "--p-ml-stop", "90", "--no-legend"])
         self.assertNotIn("inconsistent", out)
 
-    def test_F8_undersized_pool_gives_actionable_advice(self):
+    def test_undersized_pool_gives_actionable_advice(self):
         """v1 printed a bare 'n/a', conflating 'infeasible' with 'below
         threshold'."""
         out = _cli(["--supply", "scarce", "--t-raw", "40", "--p-ml-start",
                     "90", "--p-ml-stop", "90", "--no-legend"])
         self.assertIn("need T_raw >=", out)
 
-    def test_F8_readme_defaults_match_the_parser(self):
+    def test_readme_defaults_match_the_parser(self):
         """The README must not drift from the code again.
 
         v1 shipped three drifts at once: the docstring claimed --p-mag default
@@ -1109,18 +1112,8 @@ def _colour(text: str, key: str, enabled: bool) -> str:
     return f"{_ANSI[key]}{text}{_ANSI['off']}" if enabled and key in _ANSI else text
 
 
-_ID_RE = re.compile(r"test_([A-Z]\d{0,2}[a-z]?)_")
-
-
-def _audit_id(method_name: str) -> str:
-    m = _ID_RE.match(method_name)
-    return m.group(1) if m else "-"
-
-
 def _pretty(method_name: str) -> str:
-    name = re.sub(r"^test_", "", method_name)
-    name = re.sub(r"^[A-Z]\d{0,2}[a-z]?_", "", name)
-    return name.replace("_", " ")
+    return re.sub(r"^test_", "", method_name).replace("_", " ")
 
 
 def _wrap(text: str, width: int, indent: str) -> list[str]:
@@ -1252,7 +1245,7 @@ def print_table(result: TableResult, wall: float, colour: bool) -> None:
 
     name_w = max(len(_pretty(r[0]._testMethodName)) for r in result.records)
     name_w = max(38, min(name_w, 60))
-    width = 5 + 6 + name_w + 3 + 8 + 11
+    width = 5 + name_w + 3 + 8 + 11        # was 5 + 6 + ...; the +6 audit-ID column is gone
 
     def rule(ch="-"):
         print("  " + ch * width)
@@ -1290,7 +1283,7 @@ def print_table(result: TableResult, wall: float, colour: bool) -> None:
             label = _pretty(test._testMethodName)
             dots = "." * max(1, name_w - len(label) + 1)
             ms = f"{secs * 1000:,.1f} ms" if secs < 1 else f"{secs:,.2f} s"
-            print(f"  {idx:>3}  {_audit_id(test._testMethodName):<5} "
+            print(f"  {idx:>3}  "
                   f"{label} {_colour(dots, 'dim', colour)} "
                   f"{_colour(status.ljust(6), status, colour)} {ms:>10}")
             if detail:
@@ -1360,8 +1353,7 @@ def main(argv=None) -> int:
 
     if args.list:
         for i, t in enumerate(tests, 1):
-            print(f"{i:>3}  {_audit_id(t._testMethodName):<5} "
-                  f"{type(t).__name__}.{t._testMethodName}")
+            print(f"{i:>3}  {type(t).__name__}.{t._testMethodName}")
         return 0
 
     if args.plain:
