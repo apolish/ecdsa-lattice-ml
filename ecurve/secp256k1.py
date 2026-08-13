@@ -9,7 +9,7 @@ POINT REPRESENTATION
 The point at infinity is represented by ``None`` -- and ONLY by ``None``.
 The original code had two competing sentinels (``None`` from ``point_add``
 and ``(0, 0)`` from ``scalar_multiply``); ``(0, 0)`` is not on either curve
-and leaked silently into callers. See FIX E14.
+and leaked silently into callers.
 
 SIGNATURE TUPLE
 ===============
@@ -33,6 +33,12 @@ RANDOMNESS
 ``random.SystemRandom()`` so that statistics gathered in "test" mode are not
 contaminated by the linear structure of MT19937.  Pass ``random.Random(seed)``
 explicitly when a reproducible run is wanted.
+
+An explicitly supplied ``rng`` drives EVERY draw, key generation included.
+Previously ``_generate_private_key`` always went to ``secrets``, so a seeded
+instance reproduced its ``z`` and ``k`` but not its keys -- ``--seed`` therefore
+promised a reproducible run and did not deliver one.  ``secrets`` is now used
+only as the default source, i.e. when no ``rng`` was passed.
 """
 from __future__ import annotations
 
@@ -398,13 +404,19 @@ class Secp256k1:
     def __init__(self, params: CurveParams, rng: Optional[random.Random] = None):
         """Initialize curve with given parameters.
 
-        ``rng`` supplies the randomness used by "test" mode for z and k.  It
-        defaults to ``random.SystemRandom()``: the previous code used the
-        module-level ``random``, i.e. MT19937, whose known linear structure
-        is a poor foundation for statistics about "hidden structure" in the
-        resulting triples.  Pass ``random.Random(seed)`` for reproducibility.
+        ``rng`` supplies the randomness used by "test" mode for z and k, and --
+        when it is passed explicitly -- for key generation as well.  It defaults
+        to ``random.SystemRandom()``: the previous code used the module-level
+        ``random``, i.e. MT19937, whose known linear structure is a poor
+        foundation for statistics about "hidden structure" in the resulting
+        triples.  Pass ``random.Random(seed)`` for reproducibility.
+
+        ``_rng_explicit`` records whether the caller supplied the source. Key
+        generation consults it: an explicit rng is honoured (so a seeded run is
+        reproducible end to end), while the default path stays on ``secrets``.
         """
         self._curve = params
+        self._rng_explicit = rng is not None
         self._rng = rng if rng is not None else random.SystemRandom()
 
     @property
@@ -469,10 +481,30 @@ class Secp256k1:
         """Return the first RFC 6979 nonce candidate for (private_key, z)."""
         return next(self._rfc6979_k_candidates(private_key, z))
 
+    @property
+    def rng_is_explicit(self) -> bool:
+        """True when the caller supplied the random source (e.g. a seeded run).
+
+        When this is True, key generation draws from ``rng`` too, so the whole
+        run is reproducible; when it is False, keys come from ``secrets``.
+        """
+        return self._rng_explicit
+
     def _generate_private_key(self) -> int:
-        """Generate a random private key within the valid range."""
+        """Generate a random private key within the valid range.
+
+        Draws from ``self._rng`` when the caller supplied one, and from
+        ``secrets`` otherwise. Both paths use the same rejection sampling over
+        ``n.bit_length()`` bits, so the distribution is uniform on [1, n-1]
+        either way -- only the source differs.
+
+        The old version always called ``secrets.randbits``, which made
+        ``--seed`` a half-promise: z and k replayed, keys did not.
+        """
+        n_bits = self._curve.n.bit_length()
+        randbits = self._rng.getrandbits if self._rng_explicit else secrets.randbits
         while True:
-            private_key = secrets.randbits(self._curve.n.bit_length())
+            private_key = randbits(n_bits)
             if 1 <= private_key < self._curve.n:
                 return private_key
 
@@ -505,9 +537,7 @@ class Secp256k1:
 
         if x1 == x2 and (y1 + y2) % self._curve.p == 0:
             # p2 == -p1 (covers the y1 == y2 == 0 doubling case, which is a
-            # point of order two). FIX E22: the original tested `y1 != y2`,
-            # which let y1 == y2 == 0 fall into the doubling branch and hit
-            # inverse_mod(0, p) -> ZeroDivisionError.
+            # point of order two).
             return None
 
         if x1 == x2:
@@ -546,7 +576,6 @@ class Secp256k1:
         if private_key is None:
             private_key = self._generate_private_key()
         if not 1 <= private_key < self._curve.n:
-            # FIX D: the original accepted negative keys via the caller's
             # `private_key != 0 and private_key < n` test.
             raise ValueError(
                 f"private key must be in [1, n-1]; got {private_key}"
@@ -605,7 +634,7 @@ class Secp256k1:
                 continue
             x, y = point
             r_x = x % self._curve.n
-            r_y = y  # FIX B6: raw affine coordinate, mod p
+            r_y = y
             if r_x == 0:
                 continue
             k_inv = self.inverse_mod(k, self._curve.n)

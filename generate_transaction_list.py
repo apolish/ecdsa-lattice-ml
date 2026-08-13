@@ -33,10 +33,6 @@ from datetime import datetime
 from decimal import Decimal, getcontext
 from typing import Iterable, List, Sequence, Tuple
 
-# FIX A1: try the package layout first, then a flat layout, then give an error
-# message that describes what is actually wrong. The original hard-required
-# ``ecurve.*`` while shipping the files flat, so it always raised -- and the
-# message told the user to do what they had already done.
 try:
     from ecurve.secp256k1 import (
         Secp256k1,
@@ -95,14 +91,8 @@ def _build_report_config(curve: CurveParams) -> ReportConfig:
 
 
 def _print_once_demo(ec: Secp256k1, sig_type: str = "p2pkh") -> None:
-    """Single key/sign/verify demonstration.
+    """Single key/sign/verify demonstration."""
 
-    FIX A2: this function crashed on every invocation. Two defects:
-      1. ``ec.sign_message(pk, message)`` omitted the then-mandatory
-         ``min_start_range`` -> TypeError.
-      2. ``z, r, s, k, k_inv = sig`` unpacked 5 names from the 6-tuple
-         ``(z, r_x, r_y, s, k, k_inv)`` -> ValueError once (1) was fixed.
-    """
     t0 = time.time()
     pk, pub = ec.generate_keypair()
     print("Private key:")
@@ -205,10 +195,6 @@ def _write_report(
             "ml_accuracy_k_mag",
         ]
 
-        # FIX E17: the k_mag_<n>_count keys are now actually produced by
-        # _collect_rows (they count the observed decimal-length distribution of
-        # k). Previously this regex scanned for keys nothing ever created, so
-        # the whole block was dead.
         dynamic_items: list[tuple[int, str]] = []
         for key in stats:
             m = re.fullmatch(r"k_mag_(\d+)_count", key)
@@ -244,12 +230,6 @@ def _collect_rows(
     if transaction_limit_per_key < 1:
         raise ValueError("transaction_limit_per_key must be >= 1")
 
-    # FIX B3 (part 1): the key pool decides how many transactions actually
-    # exist. The original built the pool here but computed statistics against
-    # ``total_key_count * transaction_limit_per_key`` regardless, so passing
-    # --private-key (pool of 1) while leaving --keys > 1 divided the accuracy
-    # by a count of transactions that were never generated. Reproduced: --keys 5
-    # --tx-per-key 10 --ml-exp-accuracy 1.0 reported 20.00%.
     if private_key != 0:
         if not 1 <= private_key < ec.curve.n:
             raise ValueError(
@@ -269,8 +249,7 @@ def _collect_rows(
 
     # =========================== ML SIMULATION CODE ===============================
     # NOT A MODEL. A shuffled boolean mask sized to the transactions that will
-    # actually be generated (FIX B3 part 2: the original sized it from
-    # total_key_count, which could differ from the real pool).
+    # actually be generated.
     num_correct = round(ml_expected_accuracy * planned_tx)
     is_correct_list = [True] * num_correct + [False] * (planned_tx - num_correct)
     random.shuffle(is_correct_list)
@@ -315,9 +294,6 @@ def _collect_rows(
             # i.e. solving (a partial) ECDLP. Nothing below attempts it.
             ml_exp_k_val = str(k)[:2]
 
-            # FIX C11: guard the single-digit case explicitly instead of letting
-            # _normalize_lead raise from deep inside predict_magnitude. Only
-            # reachable with --min-start-range 1 on the test curve.
             if len(ml_exp_k_val) < 2:
                 correct_idx += 1
                 continue
@@ -354,8 +330,6 @@ def _collect_rows(
 
     elapsed = time.time() - start
 
-    # FIX B3 (part 3): divide by the number of rows that exist, not by a
-    # planned figure. Guard against an empty run instead of ZeroDivisionError.
     total_transaction_count = len(rows)
     if total_transaction_count:
         ml_accuracy_k_val = sum(1 for row in rows if row[9] == "Yes") / total_transaction_count
@@ -412,11 +386,6 @@ def _nonneg_int(value: str) -> int:
 
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
-    """FIX D: the original validated exactly one argument (keys > n-1). Every
-    other value was accepted, including --keys 0 (ZeroDivisionError),
-    --keys -3, --private-key -5 (passed `!= 0 and < n`), and
-    --ml-exp-accuracy 2.0 (built an oversized mask and reported 100%).
-    """
     p = argparse.ArgumentParser(
         description="secp256k1 transaction data generator (simulated predictor)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,

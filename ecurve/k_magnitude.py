@@ -67,11 +67,6 @@ def _count(d: int, lead: int, n: int) -> int:
 def _normalize_lead(value) -> int:
     """Accept an int in 10..99 (e.g. 47) or any value whose decimal form starts
     with two digits (the rest is ignored), and return the leading pair.
-
-    FIX C11: the caller in generate_transaction_list.py builds this from
-    ``str(k)[:2]``, which yields a single character when k < 10 and used to
-    raise a bare ValueError deep in the stack. The message below now names the
-    actual cause.
     """
     s = str(value).strip().lstrip("+")
     if not s.isdigit():
@@ -116,9 +111,6 @@ def magnitude_distribution(first_two_digits, curve_n: int) -> dict[int, float]:
 def predict_magnitude(first_two_digits, curve_n: int) -> Prediction:
     """Most likely decimal length of a uniform k-nonce and the probability of
     that length, given its first two decimal digits and the curve order ``n``.
-
-    FIX E16: these examples previously omitted the required ``curve_n``
-    argument and failed 2 of 4 doctests.
 
     On real secp256k1 (``n`` has 78 digits and begins "11"), most leading
     pairs land below ``n`` only at 77 digits:

@@ -288,7 +288,7 @@ class TestCurveParameters(unittest.TestCase):
                                  (c.g[0], (-c.g[1]) % c.p))
 
     def test_G8_coordinate_overflow_is_reachable_on_test_curve(self):
-        """The p - n gap must be wide enough to actually exercise FIX B6.
+        """The p - n gap must be wide enough to actually exercise.
 
         A y coordinate at or above n is what a `% n` bug would corrupt. On
         secp256k1 that event sits near 2^-128 and is unreachable; the test
@@ -441,7 +441,7 @@ class TestCurveParameters(unittest.TestCase):
                 self.assertEqual(c.n % 2, 1,
                                  "an even order would admit a point of order "
                                  "two and make point_add's inverse test "
-                                 "reachable; re-examine FIX E22")
+                                 "reachable;")
                 self.assertTrue(is_probable_prime(c.n))
 
 
