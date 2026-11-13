@@ -1,59 +1,111 @@
-============================================================================================
-ECDSA two-predictor subset-attack complexity  (v2, audited)
-============================================================================================
+########################################################################################################
+#  WHAT THIS TABLE IS  --  read before quoting any number
+#
+#  A COST ESTIMATE for a HYPOTHETICAL attack, not a demonstration and
+#  not a break. Every row ASSUMES an oracle that already predicts the
+#  top bits of each secret nonce at the stated accuracy. No such oracle
+#  exists for a correct ECDSA implementation; building one is equivalent
+#  to (partially) solving the elliptic-curve discrete log (~2^128 work),
+#  which this script does NOT attempt.
+#
+#  So a row like '90% -> ~1 year' does NOT mean secp256k1 breaks in a
+#  year. It means: GIVEN a 90%/82% nonce-bit oracle, the lattice
+#  book-keeping alone would take ~1 year on 1 core. The oracle is the
+#  hard part and is assumed for free.
+########################################################################################################
 
-CLEAN signature = leading-digit predictor correct AND magnitude
-predictor correct. One poisoned signature destroys the reduction.
+PROVENANCE (so this table can be reproduced and dated)
+--------------------------------------------------------------------------------------------------------
+  generated     : 2026-11-13 18:23 UTC
+  script        : ecdsa_attack_complexity.py  (v3, beginner-legible)
+  git commit    : 48a6d47
+  command       : ecdsa_attack_complexity.py
+  curve         : secp256k1  (order n, log2 n = 256 bits)
 
-  p_clean = p_b * p_m (p_m = 82.00%) [conditional; rho forced to 0]
-  m_req   = ceil(ceil(log2(n)/L) * safety_factor)
-  dim     = m_req + dim_overhead
-  q       = p_clean^m_req * p_succ [unlimited supply]
-  N       ~ Geometric(q)  ->  p05 / p50 / p95 reported
-  t_run   = t0 * 2^((dim - dim_ref)/doubling_dims)
-  time    = N * t_run / cores
+INPUTS YOU CHOSE
+--------------------------------------------------------------------------------------------------------
+  leak_bits L          = [6]   (bits of each nonce the oracle is assumed to reveal)
+  magnitude accuracy   = 82.00%   (p_m, held FIXED; combined as p_clean = p_b * p_m)
+  leading-digit sweep  = 80%..99% step 1%   (p_b, the SWEPT variable = table rows)
+  safety_factor        = 1.3   [UNVALIDATED FUDGE on the information bound]
+  supply model         = unlimited   (i.i.d. limit: assumes a large pool, hundreds+; see note)
+  reduction success    = 1.0   [OPTIMISTIC: reduction assumed infallible]
+  seconds per reduction= 2 s at dim first L's dim  [CALIBRATE THIS on your own hardware]
+                         [FLAT model: cost does NOT grow with lattice size -- WRONG; do not compare rows across different L]
+  CPU cores reported   = [1, 8, 64]
 
-order_bits (log2 n) = 256
-leak_bits (L)       = [6]
-safety_factor       = 1.3 [UNVALIDATED FUDGE]
-supply              = unlimited
-p_reduction_success = 1.0 [OPTIMISTIC: reduction assumed infallible]
-t_per_run_sec       = 2 s at dim first L's dim
-                      [FLAT -- cost does not grow with dimension, which is
-                       wrong; cross-L rows are NOT comparable]
-cores               = [1, 8, 64]
+HOW TO READ EACH COLUMN
+--------------------------------------------------------------------------------------------------------
+  p_ml%        accuracy of the leading-digit predictor p_b. This is
+               the SWEPT variable: each row is one assumed accuracy.
+  p_clean      chance a single signature is usable (both predictors
+               right) = p_b * p_m. One bad signature spoils a batch.
+  m_req        signatures that must ALL be clean in one batch (= 56 here).
+  odds/try     chance that ONE random batch is 100% clean, PER TRY
+               (= q). '1 in 24.5M' = each attempt has a 1/24,500,000
+               chance. This is NOT the total you need -- it is the odds
+               of a single coin flip.
+  reductions   how many attempts (coin flips) until the first success.
+    N:lucky5%  This is a COUNT OF ATTEMPTS, not a combination C(.,.),
+    N:median   and it has NO MAXIMUM. Being a 1-in-q coin, N VARIES:
+    N:avg        lucky 5% = you finish unusually early,
+    N:bad95%     median   = half the runs finish by here,
+               avg      = the long-run average (equals the odds number),
+               bad 95%  = 5% of runs still run PAST here.
+               So N:bad95% is LARGER than N:avg. That is expected for a
+               geometric process, not a contradiction.
+  t @ N cores  wall-clock = reductions * seconds-per-reduction / cores,
+               at the MEDIAN N, for N cores in [1, 8, 64].
+               Units: s, min, h, d (day), mo (month), yr (year).
+  NUMBER FORMAT: '16K'=16 thousand, '16M'=million, '13B'=billion,
+               '2.5T'=trillion; above that, standard sci '4.0e17'.
+  POOL SIZE: unlimited mode is the best-case infinite-pool limit;
+             a batch of exactly m_req clean signatures cannot be
+             guaranteed from a tiny pool. Run  --supply scarce
+             --t-raw N  to size the actual signature pool you need.
 
-Unvalidated assumptions carried by every number below:
+========================================================================================================
+RESULTS   L = 6 bits  |  m_req = 56 clean signatures per batch  |  lattice dim = 58  |  t/run = 2 s
+========================================================================================================
+
+    p_ml%  p_clean    odds/try  N:lucky5%   N:median      N:avg   N:bad95%   t@1core   t@8core  t@64core
+  ------------------------------------------------------------------------------------------------------
+       80   0.6560  1 in 17.9B       919M      12.4B      17.9B      53.7B    788 yr     98 yr     12 yr
+       81   0.6642   1 in 8.9B       458M       6.2B       8.9B      26.8B    393 yr     49 yr    6.1 yr
+       82   0.6724   1 in 4.5B       231M       3.1B       4.5B      13.5B    198 yr     25 yr    3.1 yr
+       83   0.6806   1 in 2.3B       117M       1.6B       2.3B       6.8B    100 yr     13 yr    1.6 yr
+       84   0.6888   1 in 1.2B      59.8M       808M       1.2B       3.5B     51 yr    6.4 yr    9.7 mo
+       85   0.6970   1 in 601M      30.8M       417M       601M       1.8B     26 yr    3.3 yr    5.0 mo
+       86   0.7052   1 in 312M      16.0M       216M       312M       935M     14 yr    1.7 yr    2.6 mo
+       87   0.7134   1 in 163M       8.4M       113M       163M       490M    7.2 yr     11 mo    1.4 mo
+       88   0.7216  1 in 86.2M       4.4M      59.7M      86.2M       258M    3.8 yr    5.8 mo      22 d
+       89   0.7298  1 in 45.8M       2.3M      31.7M      45.8M       137M    2.0 yr    3.1 mo      11 d
+       90   0.7380  1 in 24.5M       1.3M      17.0M      24.5M      73.3M    1.1 yr    1.6 mo     6.1 d
+       91   0.7462  1 in 13.2M       676K       9.1M      13.2M      39.5M    7.1 mo      26 d     3.3 d
+       92   0.7544   1 in 7.1M       367K       5.0M       7.1M      21.4M    3.8 mo      14 d     1.8 d
+       93   0.7626   1 in 3.9M       200K       2.7M       3.9M      11.7M    2.1 mo     7.8 d      23 h
+       94   0.7708   1 in 2.1M       110K       1.5M       2.1M       6.4M    1.1 mo     4.3 d      13 h
+       95   0.7790   1 in 1.2M      60.8K       822K       1.2M       3.6M      19 d     2.4 d     7.1 h
+       96   0.7872   1 in 660K      33.8K       457K       660K       2.0M      11 d     1.3 d     4.0 h
+       97   0.7954   1 in 369K      18.9K       256K       369K       1.1M     5.9 d      18 h     2.2 h
+       98   0.8036   1 in 208K      10.7K       144K       208K       623K     3.3 d      10 h     1.3 h
+       99   0.8118   1 in 118K       6.0K      81.6K       118K       353K     1.9 d     5.7 h    42 min
+  ------------------------------------------------------------------------------------------------------
+  N is a COUNT OF ATTEMPTS (lattice reductions), not a combination
+  C(.,.) and not a ceiling -- it varies and has NO maximum. 'odds/try'
+  is the per-attempt chance and equals the AVERAGE count (N:avg);
+  unlucky runs (N:bad95%) exceed that average, which is normal here.
+  Times are at the MEDIAN N; the band scales time the same way.
+  ALL numbers assume the oracle (see banner).
+
+Unvalidated assumptions carried by EVERY number above
+--------------------------------------------------------------------------------------------------------
   - p_b is an assumed oracle accuracy, not a measured capability (recovering it is a partial ECDLP)
   - safety_factor is a fudge with no lattice-theoretic justification
   - confidence ranking is not modelled; a real attacker would do better
   - t_per_run_sec must be calibrated on your own hardware and solver
-============================================================================================
 
-  L = 6 bit  |  m_req = 56  |  dim = 58  |  t/run = 2 s
-
-    p_ml%  p_clean     N p05     N p50     N p95     t@1c p50     t@8c p50    t@64c p50
-  -------------------------------------------------------------------------------------
-       80   0.6560     1e9.0    1e10.1    1e10.7     1e2.9 yr     1e2.0 yr        12 yr
-       81   0.6642     1e8.7     1e9.8    1e10.4     1e2.6 yr     1e1.7 yr         6 yr
-       82   0.6724     1e8.4     1e9.5    1e10.1     1e2.3 yr        25 yr         3 yr
-       83   0.6806     1e8.1     1e9.2     1e9.8     1e2.0 yr        13 yr         2 yr
-       84   0.6888     1e7.8     1e8.9     1e9.5     1e1.7 yr         6 yr        10 mo
-       85   0.6970     1e7.5     1e8.6     1e9.3        26 yr         3 yr         5 mo
-       86   0.7052     1e7.2     1e8.3     1e9.0        14 yr         2 yr         3 mo
-       87   0.7134     1e6.9     1e8.1     1e8.7         7 yr        11 mo         1 mo
-       88   0.7216     1e6.6     1e7.8     1e8.4         4 yr         6 mo         22 d
-       89   0.7298     1e6.4     1e7.5     1e8.1         2 yr         3 mo         11 d
-       90   0.7380     1e6.1     1e7.2     1e7.9         1 yr         2 mo          6 d
-       91   0.7462     1e5.8     1e7.0     1e7.6         7 mo         26 d          3 d
-       92   0.7544     1e5.6     1e6.7     1e7.3         4 mo         14 d          2 d
-       93   0.7626     1e5.3     1e6.4     1e7.1         2 mo          8 d         23 h
-       94   0.7708     1e5.0     1e6.2     1e6.8         1 mo          4 d         13 h
-       95   0.7790     1e4.8     1e5.9     1e6.6         19 d          2 d          7 h
-       96   0.7872     1e4.5     1e5.7     1e6.3         11 d          1 d          4 h
-       97   0.7954     1e4.3     1e5.4     1e6.0          6 d         18 h          2 h
-       98   0.8036     1e4.0     1e5.2     1e5.8          3 d         10 h          1 h
-       99   0.8118     1e3.8     1e4.9     1e5.5          2 d          6 h       42 min
-  -------------------------------------------------------------------------------------
-  Times are at the p50 of N. The p05-p95 band scales the times by
-  exactly the same factor as it scales N.
+  Bottom line: this estimates the CHEAP half of the attack (the
+  lattice book-keeping, which parallelises trivially). The EXPENSIVE
+  half -- the nonce-bit oracle -- is assumed, and for a correct
+  implementation it costs ~2^128, which no number of cores shortens.

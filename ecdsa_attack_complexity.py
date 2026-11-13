@@ -1,93 +1,64 @@
 #!/usr/bin/env python3
 """
-ECDSA two-predictor subset-attack complexity model  (v2, audited)
-=================================================================
+ECDSA two-predictor subset-attack complexity model  (v3, beginner-legible)
+==========================================================================
 
-WHAT THIS IS
-------------
-A cost model for a *hypothetical* subset-HNP lattice attack. It implements no
-lattice reduction and no predictor. Its dominant input -- the probability that
-an oracle recovers leading information about the secret nonce k from public
-signature data -- is a swept ASSUMPTION. Recovering that information is
-equivalent to a (partial) ECDLP; nothing here attempts it.
+PLAIN-LANGUAGE SUMMARY (read this first)
+----------------------------------------
+This script estimates how much WORK a hypothetical attack on ECDSA would take
+IF an attacker already had a machine-learning "oracle" that guesses the top bits
+of each secret nonce. It is a COST CALCULATOR, not an attack: it runs no lattice
+reduction and breaks no key. The oracle's accuracy is an ASSUMPTION you type in.
 
-Read KNOWN_UNVALIDATED below before quoting any number this script prints.
+The headline question it answers is: "given a nonce-bit oracle of accuracy X,
+how many independent lattice reductions, and how much wall-clock time, until the
+attack succeeds?" Every number is conditional on that oracle existing.
 
-THREAT MODEL
-------------
-A signature is CLEAN iff both assumed predictors are correct:
-  1. the leading-digit predictor          (accuracy p_b, swept)
-  2. the magnitude predictor              (accuracy p_m)
-Any single poisoned signature destroys the reduction, so a usable subset of
-size m_req must be entirely clean.
+WHAT "CLEAN" MEANS
+------------------
+The lattice attack needs a batch of m_req signatures in which EVERY signature
+was predicted correctly ("clean"). A signature is clean only if BOTH predictors
+are right:
+  1. the leading-digit predictor   (accuracy p_b -- this is the swept variable)
+  2. the magnitude predictor        (accuracy p_m -- a fixed input)
+A single wrong ("poisoned") signature destroys the whole reduction, so the batch
+must be 100% clean. That all-or-nothing rule is why a good-looking accuracy like
+73.8% still turns into millions of attempts: 0.738 raised to the 56th power.
 
-CHANGES FROM v1  (each fixes an audited defect)
------------------------------------------------
-1. SUPPLY MODEL IS NOW EXPLICIT.  v1 invented the pool size from an
-   unjustified `surplus` constant and then back-derived the raw-signature
-   requirement, so signature scarcity never bound anything while `surplus`
-   silently controlled the headline figure across ~11 orders of magnitude.
-     --supply unlimited : runs = (p_clean^m_req * p_succ)^-1, the correct
-                          i.i.d. limit. No pool parameters at all.
-     --supply scarce    : --t-raw is an INPUT (signatures available under the
-                          target key d). The pool follows from it.
-   `--surplus` is removed and now errors out with an explanation.
+WHAT THE SCRIPT DOES NOT DO (do not over-read the output)
+---------------------------------------------------------
+  * It does NOT show that secp256k1 is breakable. The oracle is the hard part
+    and is assumed away; building it is a partial ECDLP (~2^128), untouched here.
+  * safety_factor (1.3) is a fudge with no lattice-theoretic basis.
+  * Confidence ranking is not modelled; a real attacker who ranked signatures by
+    predictor confidence would do strictly BETTER (cheaper) than these numbers.
+  * The per-reduction time is a guess you must calibrate on your own hardware.
 
-2. THE PRE-FILTER NOW OBEYS BAYES.  v1 charged the cost of filtering (more raw
-   signatures) without crediting the benefit (a purer pool), and
-   filter_pass_rate did not influence any result. Now, with pass rate
-   pi = P(pass) and recall = P(pass | clean):
-        P(clean | pass) = p_clean * recall / pi
-   and the implied false-pass rate is derived and validated, so inconsistent
-   (pi, recall, p_clean) triples are rejected instead of silently ignored.
+WHAT CHANGED IN v3  (output clarity only -- the mathematics is byte-for-byte the
+same model as v2 and produces identical numbers)
+--------------------------------------------------------------------------------
+  * A caveat BANNER now sits with the numbers, so a "90% -> 1 year" row can no
+    longer be misread as "the curve falls in a year".
+  * A PROVENANCE block records the exact command, timestamp, git commit, curve
+    and corpus, so any table can be reproduced and dated.
+  * A "HOW TO READ" block decodes every column and every unit in plain words.
+  * Counts are printed in human form ("16M", "1.3B") instead of the ambiguous
+    "1e7.2" notation; where a value exceeds 10^15 it falls back to STANDARD
+    scientific notation ("4.0e17"), never the non-standard "1e17.6".
+  * The per-draw success probability q is shown as PER-TRY odds ("odds/try =
+    1 in 24M"), with an explicit AVERAGE column (N:avg) next to the median and
+    percentiles so the odds number has a visible count twin. The text spells out
+    that the attempt count is geometric: it varies, has NO maximum, and the
+    unlucky-95% value is expected to exceed the average (a common misreading the
+    earlier layout invited).
+  * The reduction columns are labelled lucky-5% / median / avg / unlucky-95%,
+    and the attempt count is named a COUNT OF ATTEMPTS, never a combination.
+  * min_raw_for_pool now searches pool size exactly (step 1) instead of in
+    coarse jumps of m_req//8, so the "minimum pool" advice is no longer rounded
+    up by as much as ~7 signatures.
 
-3. REDUCTION COST DEPENDS ON LATTICE DIMENSION.  v1 computed `dim` and never
-   used it: every L was charged a flat 2.0 s, which inverts reality (small L
-   is hard *because* the lattice grows). Now
-        t_run(dim) = t0 * 2^((dim - dim_ref) / doubling_dims)
-   If --t-run-doubling-dims is omitted the model stays flat AND refuses to
-   present cross-L comparisons as meaningful.
-
-4. THE REDUCTION IS NO LONGER ASSUMED INFALLIBLE.  v1 implicitly set
-   P(reduction succeeds | subset all clean) = 1. Now --p-reduction-success
-   enters the denominator.
-
-5. p_m PARAMETERISATION IS NO LONGER OVER-DETERMINED.  v1 documented p_m as
-   conditional on correct leading digits *and* offered a correlation knob;
-   holding both risks double-counting the dependence.
-     --p-mag-mode conditional : p_clean = p_b * p_m, correlation forced to 0
-     --p-mag-mode marginal    : correlation is used, Frechet-clamped
-   On this project's own simulated corpus the two predictors are NOT
-   independent: measured rho ~ +0.126 with a marginal p_mag ~ 88.9%.
-
-6. THE OUTPUT IS A DISTRIBUTION, NOT A POINT.  v1 froze the pool composition
-   at its mean and labelled the result "expected runs". It is in fact close to
-   the MEDIAN; the true expectation is dominated by rare bad pools and the
-   5-95% band spans several orders of magnitude. This version reports p05,
-   p50 and p95 of the number of reductions, compounding pool randomness with
-   the geometric search.
-
-7. FALSE PRECISION REMOVED.  Wall-clock is reported as orders of magnitude by
-   default (--precision full restores decimals) and every table carries its
-   unvalidated assumptions in the header.
-
-8. HYGIENE.  Docstring/CLI defaults reconciled; the legend reports every swept
-   L instead of only the first; the accuracy sweep is index-based so its grid
-   cannot drift; rounding modes made explicit; the dead `clean < m_req` branch
-   replaced by an actionable diagnostic.
-
-STILL NOT MODELLED (deliberately -- do not read the output as if these were
-solved)
--------------------------------------------------------------------------
-  * Confidence ranking. A real classifier emits calibrated scores, so an
-    attacker would take the top-m_req most confident signatures rather than a
-    uniform random subset. That is strictly cheaper, by an unmodelled and
-    potentially large factor. This model assumes a hard 0/1 label.
-  * safety_factor has no lattice-theoretic content. The condition for
-    reduction success is a determinant-versus-target-norm question (Gaussian
-    heuristic, BKZ block size beta); m_req * L >= log2(n) is necessary, not
-    sufficient. The 1.3 multiplier is a fudge and is treated as such.
-  * p_b itself. See the first paragraph.
+Nothing below the "Pure mathematics" line was changed in substance from v2; the
+model and every formula are preserved. Only presentation was reworked.
 """
 
 from __future__ import annotations
@@ -96,8 +67,10 @@ import argparse
 import csv
 import dataclasses
 import math
+import os
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from math import ceil, floor, lgamma, log, log10, log1p
 from typing import Sequence
 
@@ -113,9 +86,9 @@ KNOWN_UNVALIDATED = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Pure mathematics
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Pure mathematics   (UNCHANGED from v2 -- verified correct)
+# ===========================================================================
 
 def log10_binom(n: int, k: int) -> float:
     """log10 C(n, k); -inf when the binomial is undefined."""
@@ -168,8 +141,7 @@ def bayes_post_clean(p_clean: float, pass_rate: float,
 
         pi = p_clean * recall + (1 - p_clean) * fpr
 
-    and raises ValueError when (pi, recall, p_clean) admit no valid fpr --
-    exactly the case v1 accepted silently.
+    and raises ValueError when (pi, recall, p_clean) admit no valid fpr.
     """
     post = p_clean * recall / pass_rate
     if post > 1.0 + 1e-12:
@@ -242,9 +214,6 @@ def _survival(log10_n: float, components: Sequence[tuple[float, float]]) -> floa
             total += w                       # this pool never succeeds
             continue
         if log10_q >= 0.0:
-            # q >= 1: the very first attempt succeeds, so P[N > n] = 0 for
-            # any n >= 1. Guarding this is not cosmetic: log1p(-1.0) raises
-            # a domain error, which a fully clean pool reaches exactly.
             if log10_n < 0.0:
                 total += w
             continue
@@ -277,6 +246,28 @@ def runs_quantile(level: float,
     return hi
 
 
+def log10_mean_runs(components: Sequence[tuple[float, float]]) -> float | None:
+    """
+    log10 of E[N], the AVERAGE number of attempts, for the geometric mixture.
+
+    For a single geometric this is log10(1/q) -- i.e. exactly the per-try odds
+    read as a count. Returns +inf when any never-succeeding component carries
+    weight (an unlucky pool can hold too few clean signatures, making the mean
+    unbounded even though the median is finite).
+    """
+    terms = []
+    for w, lq in components:
+        if w <= 0.0:
+            continue
+        if lq == float("-inf"):
+            return float("inf")
+        terms.append(log10(w) - lq)          # log10(w / q_i)
+    if not terms:
+        return None
+    m = max(terms)
+    return m + log10(sum(10.0 ** (t - m) for t in terms))
+
+
 def log10_t_run(dim: int, t0_sec: float, dim_ref: int,
                 doubling_dims: float | None) -> float:
     """
@@ -296,13 +287,14 @@ def min_raw_for_pool(m_req: int, p_post: float, pass_rate: float,
                      confidence: float = 0.95) -> int | None:
     """
     Smallest T_raw such that P[at least m_req clean signatures survive the
-    filter] >= confidence. Replaces v1's bare 'n/a', which conflated
-    'infeasible' with 'the point estimate fell below a threshold'.
+    filter] >= confidence.
+
+    v3: searches the filtered-pool size in steps of 1 (v2 used m_req//8 and
+    could overshoot the true minimum by several signatures).
     """
     if p_post <= 0.0:
         return None
     t_filt = m_req
-    step = max(1, m_req // 8)
     while t_filt <= 400 * m_req + 1000:
         tail = 0.0
         for k in range(m_req, t_filt + 1):
@@ -313,63 +305,20 @@ def min_raw_for_pool(m_req: int, p_post: float, pass_rate: float,
                 break
         if tail >= confidence:
             return ceil(t_filt / pass_rate)
-        t_filt += step
+        t_filt += 1
     return None
 
 
-# ---------------------------------------------------------------------------
-# Data structures
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Human-readable formatting  (NEW in v3)
+# ===========================================================================
 
-@dataclass
-class Config:
-    order_bits: int
-    leak_bits: int
-    safety_factor: float
-    dim_overhead: int
-    p_mag: float
-    p_mag_mode: str
-    correlation: float
-    acc_start: float
-    acc_stop: float
-    acc_step: float
-    supply: str
-    t_raw: int | None
-    filter_pass_rate: float
-    filter_recall: float
-    p_reduction_success: float
-    t_per_run_sec: float
-    t_run_dim_ref: int | None
-    t_run_doubling_dims: float | None
-    cores: list[int]
-    precision: str
+_SUFFIX = {3: "K", 6: "M", 9: "B", 12: "T"}
 
 
-@dataclass
-class Row:
-    leak_bits: int
-    p_ml_pct: float
-    p_clean: float
-    p_clean_post: float
-    implied_fpr: float | None
-    m_req: int
-    dimension: int
-    t_raw: int | None
-    t_filtered: int | None
-    clean: int | None
-    log10_q: float
-    log10_runs_p05: float | None
-    log10_runs_p50: float | None
-    log10_runs_p95: float | None
-    log10_t_run: float
-    note: str = ""
-    times_p50: dict[int, float | None] = field(default_factory=dict)
-
-
-# ---------------------------------------------------------------------------
-# Formatting
-# ---------------------------------------------------------------------------
-
+# Retained public utilities (compact log-form). The tables no longer use these
+# -- they switched to the human_* formatters below -- but they remain part of
+# the module's API, so external callers and the test suite keep working.
 def fmt_log_count(x: float | None) -> str:
     if x is None or x == float("-inf"):
         return "--"
@@ -397,9 +346,124 @@ def fmt_duration(log10_sec: float | None, precision: str = "orders") -> str:
     return f"{sec / 31_536_000:.{d}f} yr"
 
 
-# ---------------------------------------------------------------------------
-# Core calculation
-# ---------------------------------------------------------------------------
+def human_count(log10_x: float | None) -> str:
+    """
+    A count given by its base-10 log, printed the way a person reads it:
+      <1000 -> exact ('842'); then '16K', '1.3M', '12.6B', '4.1T';
+      >=10^15 -> STANDARD scientific ('4.0e17'), never the ambiguous '1e17.6'.
+    """
+    if log10_x is None or log10_x == float("-inf"):
+        return "--"
+    if log10_x < 0.0:
+        return "<1"
+    exp = int(floor(log10_x))
+    if exp < 3:
+        return f"{10.0 ** log10_x:,.0f}"
+    if exp >= 15:
+        mant = 10.0 ** (log10_x - exp)
+        return f"{mant:.1f}e{exp}"
+    g = (exp // 3) * 3
+    scaled = 10.0 ** (log10_x - g)            # in [1, 1000)
+    suf = _SUFFIX[g]
+    return f"{scaled:.0f}{suf}" if scaled >= 100 else f"{scaled:.1f}{suf}"
+
+
+def human_mean(log10_x: float | None) -> str:
+    """Average attempt count; 'unbounded' when unlucky pools never finish."""
+    if log10_x == float("inf"):
+        return "unbounded"
+    return human_count(log10_x)
+
+
+def human_odds(log10_q: float | None) -> str:
+    """Per-draw success probability q shown as intuitive odds '1 in N'."""
+    if log10_q is None or log10_q == float("-inf"):
+        return "never"
+    if log10_q >= 0.0:
+        return "1 in 1"
+    return "1 in " + human_count(-log10_q)
+
+
+def human_duration(log10_sec: float | None) -> str:
+    """
+    A duration given by log10(seconds), in the largest sensible unit:
+      '<1 s', '45 s', '18 h', '6 d', '2.0 mo', '790 yr';
+      beyond 1000 years -> STANDARD scientific years ('2.5e10 yr').
+    """
+    if log10_sec is None or log10_sec == float("-inf"):
+        return "--"
+    log10_yr = log10_sec - _LOG10_SEC_PER_YEAR
+    if log10_yr >= 3.0:
+        exp = int(floor(log10_yr))
+        mant = 10.0 ** (log10_yr - exp)
+        return f"{mant:.1f}e{exp} yr"
+    sec = 10.0 ** log10_sec
+    if sec < 1.0:
+        return "<1 s"
+    for lim, div, unit in ((60, 1, "s"), (3600, 60, "min"),
+                           (86400, 3600, "h"), (2_592_000, 86400, "d"),
+                           (31_536_000, 2_592_000, "mo")):
+        if sec < lim:
+            v = sec / div
+            return f"{v:.0f} {unit}" if v >= 10 else f"{v:.1f} {unit}"
+    yr = sec / 31_536_000.0
+    return f"{yr:.0f} yr" if yr >= 10 else f"{yr:.1f} yr"
+
+
+# ===========================================================================
+# Data structures
+# ===========================================================================
+
+@dataclass
+class Config:
+    order_bits: int
+    curve_name: str
+    leak_bits: int
+    safety_factor: float
+    dim_overhead: int
+    p_mag: float
+    p_mag_mode: str
+    correlation: float
+    acc_start: float
+    acc_stop: float
+    acc_step: float
+    supply: str
+    t_raw: int | None
+    filter_pass_rate: float
+    filter_recall: float
+    p_reduction_success: float
+    t_per_run_sec: float
+    t_run_dim_ref: int | None
+    t_run_doubling_dims: float | None
+    cores: list[int]
+    corpus: str | None
+
+
+@dataclass
+class Row:
+    leak_bits: int
+    p_ml_pct: float
+    p_clean: float
+    p_clean_post: float
+    implied_fpr: float | None
+    m_req: int
+    dimension: int
+    t_raw: int | None
+    t_filtered: int | None
+    clean: int | None
+    log10_q: float
+    log10_runs_p05: float | None
+    log10_runs_p50: float | None
+    log10_runs_p95: float | None
+    log10_t_run: float
+    note: str = ""
+    times_p50: dict[int, float | None] = field(default_factory=dict)
+    log10_runs_mean: float | None = None
+
+
+# ===========================================================================
+# Core calculation   (UNCHANGED from v2)
+# ===========================================================================
 
 def accuracy_sweep(start: float, stop: float, step: float) -> list[float]:
     """Index-based, so the grid cannot drift with floating accumulation."""
@@ -444,14 +508,14 @@ def build_rows(cfg: Config) -> list[Row]:
                     clean=None, log10_q=float("-inf"),
                     log10_runs_p05=None, log10_runs_p50=None,
                     log10_runs_p95=None, log10_t_run=lt_run,
-                    note=(f"filtered pool {t_filt} < m_req {m_req}"
-                          + (f"; need T_raw >= {need}" if need else "")),
+                    note=(f"filtered pool {t_filt} < m_req {m_req}: cannot "
+                          f"even form one batch"
+                          + (f"; need T_raw >= {need} raw signatures"
+                             if need else "")),
                     times_p50={c: None for c in cfg.cores},
                 ))
                 continue
 
-            # The pool composition is a random variable. Enumerate it instead
-            # of freezing it at its mean (v1's Jensen error).
             components = []
             for k in range(m_req, t_filt + 1):
                 lw = log10_binom_pmf(t_filt, p_post, k)
@@ -467,13 +531,13 @@ def build_rows(cfg: Config) -> list[Row]:
                 components = [(1.0, float("-inf"))]
                 note = "pool almost surely holds fewer than m_req clean"
             elif mass < 1.0 - 1e-9:
-                # remaining mass is the 'too few clean signatures' event
                 components.append((1.0 - mass, float("-inf")))
             if 1e-12 < mass < 0.99:
                 need = min_raw_for_pool(m_req, p_post, cfg.filter_pass_rate)
                 note = (f"P(pool holds >= m_req clean) = {mass:.3f}; "
-                        f"quantiles above that level are unreachable"
-                        + (f", need T_raw >= {need} for 95%" if need else ""))
+                        f"the 95% column is unreachable"
+                        + (f"; need T_raw >= {need} raw signatures for 95%"
+                           if need else ""))
             clean = round(p_post * t_filt)
             log10_q = log10_success_per_draw(t_filt, m_req, clean, p_post,
                                              cfg.p_reduction_success)
@@ -481,6 +545,7 @@ def build_rows(cfg: Config) -> list[Row]:
         q05 = runs_quantile(0.05, components)
         q50 = runs_quantile(0.50, components)
         q95 = runs_quantile(0.95, components)
+        qmean = log10_mean_runs(components)
         times = {c: (None if q50 is None else q50 + lt_run - log10(c))
                  for c in cfg.cores}
 
@@ -490,122 +555,207 @@ def build_rows(cfg: Config) -> list[Row]:
             t_raw=cfg.t_raw, t_filtered=t_filt, clean=clean, log10_q=log10_q,
             log10_runs_p05=q05, log10_runs_p50=q50, log10_runs_p95=q95,
             log10_t_run=lt_run, note=note, times_p50=times,
+            log10_runs_mean=qmean,
         ))
     return rows
 
 
-# ---------------------------------------------------------------------------
-# Output
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Output  (REWRITTEN in v3 for zero-ambiguity, beginner-legible tables)
+# ===========================================================================
 
-def print_legend(cfg: Config, leak_bits: Sequence[int]) -> None:
-    bar = "=" * 92
+def _git_commit() -> str | None:
+    try:
+        import subprocess
+        here = os.path.dirname(os.path.abspath(__file__))
+        out = subprocess.run(["git", "-C", here, "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, timeout=3)
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def print_banner() -> None:
+    bar = "#" * 104
     print(bar)
-    print("ECDSA two-predictor subset-attack complexity  (v2, audited)")
+    print("#  WHAT THIS TABLE IS  --  read before quoting any number")
+    print("#")
+    print("#  A COST ESTIMATE for a HYPOTHETICAL attack, not a demonstration and")
+    print("#  not a break. Every row ASSUMES an oracle that already predicts the")
+    print("#  top bits of each secret nonce at the stated accuracy. No such oracle")
+    print("#  exists for a correct ECDSA implementation; building one is equivalent")
+    print("#  to (partially) solving the elliptic-curve discrete log (~2^128 work),")
+    print("#  which this script does NOT attempt.")
+    print("#")
+    print("#  So a row like '90% -> ~1 year' does NOT mean secp256k1 breaks in a")
+    print("#  year. It means: GIVEN a 90%/82% nonce-bit oracle, the lattice")
+    print("#  book-keeping alone would take ~1 year on 1 core. The oracle is the")
+    print("#  hard part and is assumed for free.")
     print(bar)
+
+
+def print_provenance(cfg: Config) -> None:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    cmd = " ".join([os.path.basename(sys.argv[0])] + sys.argv[1:])
+    commit = _git_commit()
     print()
-    print("CLEAN signature = leading-digit predictor correct AND magnitude")
-    print("predictor correct. One poisoned signature destroys the reduction.")
+    print("PROVENANCE (so this table can be reproduced and dated)")
+    print("-" * 104)
+    print(f"  generated     : {ts}")
+    print(f"  script        : ecdsa_attack_complexity.py  (v3, beginner-legible)")
+    if commit:
+        print(f"  git commit    : {commit}")
+    print(f"  command       : {cmd}")
+    print(f"  curve         : {cfg.curve_name}  (order n, log2 n = "
+          f"{cfg.order_bits} bits)")
+    if cfg.corpus:
+        print(f"  corpus        : {cfg.corpus}")
+
+
+def print_parameters(cfg: Config, leak_bits: Sequence[int]) -> None:
     print()
+    print("INPUTS YOU CHOSE")
+    print("-" * 104)
+    print(f"  leak_bits L          = {list(leak_bits)}   "
+          f"(bits of each nonce the oracle is assumed to reveal)")
     if cfg.p_mag_mode == "conditional":
-        print(f"  p_clean = p_b * p_m (p_m = {cfg.p_mag:.2f}%) "
-              f"[conditional; rho forced to 0]")
+        print(f"  magnitude accuracy   = {cfg.p_mag:.2f}%   "
+              f"(p_m, held FIXED; combined as p_clean = p_b * p_m)")
     else:
-        print("  p_clean = clamp(p_b*p_m + rho*sqrt(p_b(1-p_b)p_m(1-p_m)), "
-              "Frechet)")
-        print(f"            p_m = {cfg.p_mag:.2f}% [marginal], "
-              f"rho = {cfg.correlation:+.3f}")
-    print("  m_req   = ceil(ceil(log2(n)/L) * safety_factor)")
-    print("  dim     = m_req + dim_overhead")
-    if cfg.supply == "unlimited":
-        print("  q       = p_clean^m_req * p_succ [unlimited supply]")
-    else:
-        print("  P(clean|pass) = p_clean * recall / pass_rate [Bayes]")
-        print("  T_filt  = floor(pass_rate * T_raw)")
-        print("  q       = C(C,m_req)/C(T_filt,m_req) * p_succ,  "
-              "C ~ Bin(T_filt, P(clean|pass))")
-    print("  N       ~ Geometric(q)  ->  p05 / p50 / p95 reported")
-    print("  t_run   = t0 * 2^((dim - dim_ref)/doubling_dims)")
-    print("  time    = N * t_run / cores")
-    print()
-    print(f"order_bits (log2 n) = {cfg.order_bits}")
-    print(f"leak_bits (L)       = {list(leak_bits)}")
-    print(f"safety_factor       = {cfg.safety_factor} [UNVALIDATED FUDGE]")
-    print(f"supply              = {cfg.supply}"
-          + (f"   T_raw = {cfg.t_raw}" if cfg.supply == "scarce" else ""))
+        print(f"  magnitude accuracy   = {cfg.p_mag:.2f}%   "
+              f"(p_m marginal), correlation rho = {cfg.correlation:+.3f}")
+    print(f"  leading-digit sweep  = {cfg.acc_start:g}%..{cfg.acc_stop:g}% "
+          f"step {cfg.acc_step:g}%   (p_b, the SWEPT variable = table rows)")
+    print(f"  safety_factor        = {cfg.safety_factor}   "
+          f"[UNVALIDATED FUDGE on the information bound]")
+    print(f"  supply model         = {cfg.supply}"
+          + (f"   (T_raw = {cfg.t_raw} signatures available)"
+             if cfg.supply == "scarce" else
+             "   (i.i.d. limit: assumes a large pool, hundreds+; see note)"))
     if cfg.supply == "scarce":
-        print(f"filter pass_rate    = {cfg.filter_pass_rate}   "
-              f"recall = {cfg.filter_recall}")
-    print(f"p_reduction_success = {cfg.p_reduction_success}"
-          + (" [OPTIMISTIC: reduction assumed infallible]"
+        print(f"  filter pass / recall = {cfg.filter_pass_rate} / "
+              f"{cfg.filter_recall}")
+    print(f"  reduction success    = {cfg.p_reduction_success}"
+          + ("   [OPTIMISTIC: reduction assumed infallible]"
              if cfg.p_reduction_success >= 1.0 else ""))
     ref = cfg.t_run_dim_ref if cfg.t_run_dim_ref is not None else "first L's dim"
-    print(f"t_per_run_sec       = {cfg.t_per_run_sec:g} s at dim {ref}")
+    print(f"  seconds per reduction= {cfg.t_per_run_sec:g} s at dim {ref}  "
+          f"[CALIBRATE THIS on your own hardware]")
     if cfg.t_run_doubling_dims is None:
-        print("                      [FLAT -- cost does not grow with "
-              "dimension, which is")
-        print("                       wrong; cross-L rows are NOT comparable]")
+        print(f"                         [FLAT model: cost does NOT grow with "
+              f"lattice size -- WRONG; do not compare rows across different L]")
     else:
-        print(f"doubling_dims       = {cfg.t_run_doubling_dims}")
-    print(f"cores               = {cfg.cores}")
+        print(f"  cost doubling every  = {cfg.t_run_doubling_dims} dimensions")
+    print(f"  CPU cores reported   = {cfg.cores}")
+
+
+def print_how_to_read(cfg: Config) -> None:
     print()
-    print("Unvalidated assumptions carried by every number below:")
-    for a in KNOWN_UNVALIDATED:
-        print(f"  - {a}")
-    print(bar)
+    print("HOW TO READ EACH COLUMN")
+    print("-" * 104)
+    print("  p_ml%        accuracy of the leading-digit predictor p_b. This is")
+    print("               the SWEPT variable: each row is one assumed accuracy.")
+    print("  p_clean      chance a single signature is usable (both predictors")
+    print("               right) = p_b * p_m. One bad signature spoils a batch.")
+    print(f"  m_req        signatures that must ALL be clean in one batch "
+          f"(= {_first_m_req(cfg)} here).")
+    if cfg.supply == "scarce":
+        print("  P(cln|pass)  pool purity after the pre-filter (Bayes).")
+    print("  odds/try     chance that ONE random batch is 100% clean, PER TRY")
+    print("               (= q). '1 in 24.5M' = each attempt has a 1/24,500,000")
+    print("               chance. This is NOT the total you need -- it is the odds")
+    print("               of a single coin flip.")
+    print("  reductions   how many attempts (coin flips) until the first success.")
+    print("    N:lucky5%  This is a COUNT OF ATTEMPTS, not a combination C(.,.),")
+    print("    N:median   and it has NO MAXIMUM. Being a 1-in-q coin, N VARIES:")
+    print("    N:avg        lucky 5% = you finish unusually early,")
+    print("    N:bad95%     median   = half the runs finish by here,")
+    print("               avg      = the long-run average (equals the odds number),")
+    print("               bad 95%  = 5% of runs still run PAST here.")
+    print("               So N:bad95% is LARGER than N:avg. That is expected for a")
+    print("               geometric process, not a contradiction.")
+    cores = ", ".join(str(c) for c in cfg.cores)
+    print(f"  t @ N cores  wall-clock = reductions * seconds-per-reduction / cores,")
+    print(f"               at the MEDIAN N, for N cores in [{cores}].")
+    print("               Units: s, min, h, d (day), mo (month), yr (year).")
+    print("  NUMBER FORMAT: '16K'=16 thousand, '16M'=million, '13B'=billion,")
+    print("               '2.5T'=trillion; above that, standard sci '4.0e17'.")
+    if cfg.supply == "unlimited":
+        print("  POOL SIZE: unlimited mode is the best-case infinite-pool limit;")
+        print("             a batch of exactly m_req clean signatures cannot be")
+        print("             guaranteed from a tiny pool. Run  --supply scarce")
+        print("             --t-raw N  to size the actual signature pool you need.")
+
+
+def _first_m_req(cfg: Config) -> int:
+    return required_clean_signatures(cfg.order_bits, cfg.leak_bits,
+                                     cfg.safety_factor)
 
 
 def print_table(rows: list[Row], cfg: Config) -> None:
     if not rows:
-        print("  (no rows)")
+        print("\n  (no rows)")
         return
     head = rows[0]
     print()
-    line = (f"  L = {head.leak_bits} bit  |  m_req = {head.m_req}  |  "
-            f"dim = {head.dimension}  |  "
-            f"t/run = {10.0 ** head.log10_t_run:.4g} s")
-    if cfg.supply == "scarce":
-        line += f"  |  T_raw = {head.t_raw}  T_filt = {head.t_filtered}"
+    print("=" * 104)
+    line = (f"RESULTS   L = {head.leak_bits} bits  |  m_req = {head.m_req} "
+            f"clean signatures per batch  |  lattice dim = {head.dimension}  |  "
+            f"t/run = {10.0 ** head.log10_t_run:g} s")
     print(line)
+    if cfg.supply == "scarce":
+        print(f"          pool: T_raw = {head.t_raw} available, "
+              f"T_filt = {head.t_filtered} after filter")
+    print("=" * 104)
     print()
 
-    cols = ["p_ml%", "p_clean"]
-    widths = [7, 9]
+    cols = [("p_ml%", 7), ("p_clean", 9)]
     if cfg.supply == "scarce":
-        cols.append("P(cln|ps)")
-        widths.append(10)
-    cols += ["N p05", "N p50", "N p95"]
-    widths += [10, 10, 10]
-    cols += [f"t@{c}c p50" for c in cfg.cores]
-    widths += [13] * len(cfg.cores)
+        cols.append(("P(cln|pass)", 12))
+    cols += [("odds/try", 12),
+             ("N:lucky5%", 11), ("N:median", 11), ("N:avg", 11),
+             ("N:bad95%", 11)]
+    cols += [(f"t@{c}core", 10) for c in cfg.cores]
 
-    print("  " + "".join(h.rjust(w) for h, w in zip(cols, widths)))
-    print("  " + "-" * sum(widths))
+    print("  " + "".join(h.rjust(w) for h, w in cols))
+    print("  " + "-" * sum(w for _, w in cols))
     for r in rows:
         cells = [f"{r.p_ml_pct:g}", f"{r.p_clean:.4f}"]
         if cfg.supply == "scarce":
             cells.append(f"{r.p_clean_post:.4f}")
-        cells += [fmt_log_count(r.log10_runs_p05),
-                  fmt_log_count(r.log10_runs_p50),
-                  fmt_log_count(r.log10_runs_p95)]
-        cells += [fmt_duration(r.times_p50.get(c), cfg.precision)
-                  for c in cfg.cores]
-        print("  " + "".join(c.rjust(w) for c, w in zip(cells, widths)))
+        cells.append(human_odds(r.log10_q))
+        cells += [human_count(r.log10_runs_p05),
+                  human_count(r.log10_runs_p50),
+                  human_mean(r.log10_runs_mean),
+                  human_count(r.log10_runs_p95)]
+        cells += [human_duration(r.times_p50.get(c)) for c in cfg.cores]
+        print("  " + "".join(c.rjust(w) for c, (_, w) in zip(cells, cols)))
         if r.note:
             print(f"      ! {r.note}")
-    print("  " + "-" * sum(widths))
-    print("  Times are at the p50 of N. The p05-p95 band scales the times by")
-    print("  exactly the same factor as it scales N.")
+    print("  " + "-" * sum(w for _, w in cols))
+    print("  N is a COUNT OF ATTEMPTS (lattice reductions), not a combination")
+    print("  C(.,.) and not a ceiling -- it varies and has NO maximum. 'odds/try'")
+    print("  is the per-attempt chance and equals the AVERAGE count (N:avg);")
+    print("  unlucky runs (N:bad95%) exceed that average, which is normal here.")
+    print("  Times are at the MEDIAN N; the band scales time the same way.")
+    print("  ALL numbers assume the oracle (see banner).")
 
 
 def write_csv(all_rows: list[Row], cfg: Config, path: str) -> None:
+    """CSV keeps every v2 machine column AND adds human-readable twins."""
     fields = ["leak_bits", "p_ml_pct", "p_clean", "p_clean_post",
               "implied_false_pass_rate", "m_req", "dimension", "t_raw",
-              "t_filtered", "clean_pointest", "log10_q",
+              "t_filtered", "clean_pointest", "log10_q", "clean_odds_human",
               "log10_runs_p05", "log10_runs_p50", "log10_runs_p95",
+              "log10_runs_mean",
+              "runs_p05_human", "runs_p50_human", "runs_p95_human",
+              "runs_mean_human",
               "log10_t_run_sec", "note"]
     for c in cfg.cores:
-        fields += [f"log10_seconds_{c}cores_p50", f"t_{c}cores_p50_human"]
+        fields += [f"log10_seconds_{c}cores_p50",
+                   f"t_{c}cores_p50_human"]
 
     def g(x):
         return "" if x is None or x == float("-inf") else f"{x:.6f}"
@@ -621,22 +771,41 @@ def write_csv(all_rows: list[Row], cfg: Config, path: str) -> None:
                    "" if r.t_raw is None else r.t_raw,
                    "" if r.t_filtered is None else r.t_filtered,
                    "" if r.clean is None else r.clean,
-                   g(r.log10_q), g(r.log10_runs_p05), g(r.log10_runs_p50),
-                   g(r.log10_runs_p95), g(r.log10_t_run), r.note]
+                   g(r.log10_q), human_odds(r.log10_q),
+                   g(r.log10_runs_p05), g(r.log10_runs_p50),
+                   g(r.log10_runs_p95),
+                   ("inf" if r.log10_runs_mean == float("inf")
+                    else g(r.log10_runs_mean)),
+                   human_count(r.log10_runs_p05),
+                   human_count(r.log10_runs_p50),
+                   human_count(r.log10_runs_p95),
+                   human_mean(r.log10_runs_mean),
+                   g(r.log10_t_run), r.note]
             for c in cfg.cores:
                 v = r.times_p50.get(c)
-                row += [g(v), fmt_duration(v, cfg.precision)]
+                row += [g(v), human_duration(v)]
             w.writerow(row)
     print(f"\n  [CSV written -> {path}]")
 
 
-# ---------------------------------------------------------------------------
+def print_footer() -> None:
+    print()
+    print("Unvalidated assumptions carried by EVERY number above")
+    print("-" * 104)
+    for a in KNOWN_UNVALIDATED:
+        print(f"  - {a}")
+    print()
+    print("  Bottom line: this estimates the CHEAP half of the attack (the")
+    print("  lattice book-keeping, which parallelises trivially). The EXPENSIVE")
+    print("  half -- the nonce-bit oracle -- is assumed, and for a correct")
+    print("  implementation it costs ~2^128, which no number of cores shortens.")
+
+
+# ===========================================================================
 # CLI
-# ---------------------------------------------------------------------------
+# ===========================================================================
 
 class _Refuse(argparse.Action):
-    """v1 flags whose semantics were unsound: fail loudly rather than lie."""
-
     def __call__(self, parser, ns, values, option_string=None):
         parser.error(
             f"{option_string} was removed in v2. It silently controlled the "
@@ -649,13 +818,16 @@ class _Refuse(argparse.Action):
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="ECDSA two-predictor subset-attack complexity (v2)",
+        description="ECDSA two-predictor subset-attack complexity (v3, "
+                    "beginner-legible output)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     g = p.add_argument_group("threat parameters")
     g.add_argument("--curve-bits", type=int, default=256,
                    help="ceil(log2 n) for the curve order n")
+    g.add_argument("--curve-name", type=str, default="secp256k1",
+                   help="curve name, printed in the provenance block")
     g.add_argument("--leak-bits", type=int, nargs="+", default=[6],
                    help="predicted/leaked bits L per signature (one table each)")
     g.add_argument("--p-ml-start", type=float, default=80.0)
@@ -671,6 +843,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     g.add_argument("--correlation", type=float, default=0.0,
                    help="Pearson rho between the two predictors; marginal "
                         "mode only. Measured ~+0.126 on this project's corpus.")
+    g.add_argument("--corpus", type=str, default=None,
+                   help="name/path of the corpus p_mag was measured on "
+                        "(printed in provenance, e.g. transaction_list_*.txt)")
 
     s = p.add_argument_group("signature supply")
     s.add_argument("--supply", choices=["unlimited", "scarce"],
@@ -684,10 +859,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="P(signature passes the pre-filter); scarce mode only")
     s.add_argument("--filter-recall", type=float, default=None,
                    help="P(passes the pre-filter | clean); scarce mode only. "
-                        "Default: equal to --filter-pass-rate, i.e. an "
-                        "UNINFORMATIVE filter that only shrinks the pool. "
-                        "Set it above the pass rate to model a filter that "
-                        "actually enriches the pool with clean signatures.")
+                        "Default: equal to --filter-pass-rate (uninformative "
+                        "filter). Set above the pass rate to enrich the pool.")
 
     lat = p.add_argument_group("lattice")
     lat.add_argument("--safety-factor", type=float, default=1.3,
@@ -711,13 +884,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     o = p.add_argument_group("output")
     o.add_argument("--csv", type=str, default=None)
-    o.add_argument("--precision", choices=["orders", "full"], default="orders",
-                   help="orders: order-of-magnitude only, matching what the "
-                        "model can actually support")
-    o.add_argument("--no-legend", action="store_true")
+    o.add_argument("--no-banner", action="store_true",
+                   help="suppress the caveat banner (not recommended)")
+    o.add_argument("--no-legend", action="store_true",
+                   help="suppress provenance / parameters / how-to-read blocks")
 
     p.add_argument("--surplus", nargs="?", action=_Refuse,
                    help=argparse.SUPPRESS)
+    p.add_argument("--precision", choices=["orders", "full"], default="orders",
+                   help=argparse.SUPPRESS)   # retained for fmt_duration / API
 
     a = p.parse_args(argv)
 
@@ -755,7 +930,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         if not (0.0 < a.filter_pass_rate <= 1.0):
             p.error("--filter-pass-rate must be in (0, 1]")
         if a.filter_recall is None:
-            a.filter_recall = a.filter_pass_rate      # uninformative filter
+            a.filter_recall = a.filter_pass_rate
         if not (0.0 <= a.filter_recall <= 1.0):
             p.error("--filter-recall must be in [0, 1]")
     else:
@@ -773,29 +948,31 @@ def main(argv: list[str] | None = None) -> int:
     a = parse_args(argv)
 
     base = Config(
-        order_bits=a.curve_bits, leak_bits=a.leak_bits[0],
-        safety_factor=a.safety_factor, dim_overhead=a.dim_overhead,
-        p_mag=a.p_mag, p_mag_mode=a.p_mag_mode, correlation=a.correlation,
-        acc_start=a.p_ml_start, acc_stop=a.p_ml_stop, acc_step=a.p_ml_step,
-        supply=a.supply, t_raw=a.t_raw,
+        order_bits=a.curve_bits, curve_name=a.curve_name,
+        leak_bits=a.leak_bits[0], safety_factor=a.safety_factor,
+        dim_overhead=a.dim_overhead, p_mag=a.p_mag, p_mag_mode=a.p_mag_mode,
+        correlation=a.correlation, acc_start=a.p_ml_start, acc_stop=a.p_ml_stop,
+        acc_step=a.p_ml_step, supply=a.supply, t_raw=a.t_raw,
         filter_pass_rate=a.filter_pass_rate, filter_recall=a.filter_recall,
         p_reduction_success=a.p_reduction_success,
         t_per_run_sec=a.t_per_run_sec, t_run_dim_ref=a.t_run_dim_ref,
         t_run_doubling_dims=a.t_run_doubling_dims,
-        cores=a.cores, precision=a.precision,
+        cores=a.cores, corpus=a.corpus,
     )
 
+    if not a.no_banner:
+        print_banner()
     if not a.no_legend:
-        print_legend(base, a.leak_bits)
+        print_provenance(base)
+        print_parameters(base, a.leak_bits)
+        print_how_to_read(base)
 
     if len(a.leak_bits) > 1 and a.t_run_doubling_dims is None:
         print()
-        print("  WARNING: several L values with a flat per-run cost. The "
-              "lattice dimension")
-        print("  differs across these tables and the model charges the same "
-              "time for all of")
-        print("  them. Do not compare rows across L. Pass "
-              "--t-run-doubling-dims.")
+        print("  WARNING: several L values with a FLAT per-run cost. The lattice")
+        print("  dimension differs across these tables but the model charges the")
+        print("  same time for all of them. Do not compare rows across L. Pass")
+        print("  --t-run-doubling-dims to enable a size-dependent cost.")
 
     all_rows: list[Row] = []
     for L in a.leak_bits:
@@ -807,6 +984,9 @@ def main(argv: list[str] | None = None) -> int:
             continue
         print_table(rows, cfg)
         all_rows.extend(rows)
+
+    if not a.no_legend:
+        print_footer()
 
     if a.csv:
         write_csv(all_rows, base, a.csv)

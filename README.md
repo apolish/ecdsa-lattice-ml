@@ -472,7 +472,7 @@ Defaults (machine-checked by `test_readme_defaults_match_the_parser`):
 `p_ml_start=80.0`, `p_ml_stop=99.0`, `p_ml_step=1.0`,
 `supply=unlimited`, `filter_pass_rate=1.0`, `p_reduction_success=1.0`,
 `t_per_run_sec=2.0`, `t_run_doubling_dims=None`, `cores=[1, 8, 64]`,
-`precision=orders`.
+`precision=orders`, `curve_name=secp256k1`, `corpus=None`.
 <!-- defaults:end -->
 
 **`t_per_run_sec` is the single most important number in the model and it is not
@@ -480,7 +480,9 @@ measured here.** Calibrate it on your own hardware and solver — build a
 synthetic all-clean HNP instance of dimension `m_req + 2`, run one `fpylll`
 LLL/BKZ reduction, take wall-clock — then pass `--t-per-run-sec` together with
 `--t-run-dim-ref` and `--t-run-doubling-dims`. Without all three, wall-clock is
-order-of-magnitude only, which is why `--precision orders` is the default.
+an order-of-magnitude placeholder: the table prints human-readable magnitudes
+(`1.1 yr`, `6.1 d`) regardless of `--precision`, and exact log-scale values are
+available via `--csv`.
 
 #### 3.10.1 What the cost model still does not capture
 
@@ -564,12 +566,28 @@ magnitude lookup. See §1 and §6.
 
 Evaluates the cost model of §3.10 across an accuracy sweep and optional
 `--leak-bits` values; prints a table per `L` and can emit CSV via `--csv`.
+Every run leads with a plain-language **caveat banner** (the numbers are a
+hypothetical, conditional on an oracle no one has built), a **provenance block**
+(UTC timestamp, git commit, exact command, curve, corpus) and a **"how to read"**
+guide, so a first-time reader cannot mistake the table for a forecast. Counts are
+printed in human-readable magnitudes (`16K`, `17.0M`, and standard scientific
+`4.0e17` above `10¹⁵`) rather than a bare log exponent; the per-draw success
+probability is shown as odds (`odds/try = 1 in 24.5M`), and the reduction count
+is reported as `lucky-5% / median / average / unlucky-95%` — a count of
+independent attempts with no upper bound, **not** a combination `C(·,·)`. Exact
+log-scale values live in the `--csv` output.
+
 Signature supply is selected with `--supply {unlimited,scarce}`; `scarce`
-additionally takes `--t-raw`, `--filter-pass-rate` and `--filter-recall`.
-Reported counts are the `p05 / p50 / p95` quantiles of the number of
-reductions, and wall-clock is order-of-magnitude unless `--precision full`.
+additionally takes `--t-raw`, `--filter-pass-rate` and `--filter-recall`, and an
+undersized pool is told the exact minimum it needs (`need T_raw >= N`, computed
+by an exact step-1 search). `--precision {orders,full}` is retained for the
+`fmt_duration` / `fmt_log_count` utilities and backward compatibility; the table
+itself is always human-readable, so pull exact figures from `--csv`. Provenance
+labels are set with `--curve-name` and `--corpus`.
 Key helpers: `joint_clean_probability`, `bayes_post_clean`,
-`log10_success_per_draw`, `runs_quantile`, `log10_t_run`, `min_raw_for_pool`.
+`log10_success_per_draw`, `runs_quantile`, `log10_mean_runs`, `log10_t_run`,
+`min_raw_for_pool`; formatting via `human_count` / `human_odds` / `human_mean` /
+`human_duration`, with `fmt_log_count` / `fmt_duration` retained.
 
 ---
 
@@ -631,9 +649,10 @@ python3 ecdsa_attack_complexity.py --p-mag-mode marginal \
         --p-mag 88.88 --correlation 0.126
 
 # Calibrated: cost scales with lattice dimension, so cross-L rows are comparable
+# (exact log-scale figures land in the CSV; the table stays human-readable)
 python3 ecdsa_attack_complexity.py --leak-bits 4 6 8 \
         --t-per-run-sec 2.0 --t-run-dim-ref 58 --t-run-doubling-dims 12 \
-        --cores 1 8 64 --precision full --csv complexity.csv
+        --cores 1 8 64 --csv complexity.csv
 ```
 
 Note the explicit path in the `pytest` form. pytest only auto-discovers files

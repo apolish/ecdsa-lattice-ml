@@ -1010,14 +1010,26 @@ class TestCostModelDistribution(unittest.TestCase):
 
     def test_scarce_pool_band_is_wider_than_iid(self):
         """Pool-composition randomness must widen the band: the Jensen error
-        made visible, which a single point estimate hid entirely."""
+        made visible, which a single point estimate hid entirely.
+
+        Updated for v3: the table now prints counts in human form ('17.0M'),
+        not the old '1e7.2', so this reads the exact log10 columns from --csv
+        instead of scraping them from the table. The assertion -- scarce band
+        wider than the iid band -- is unchanged.
+        """
         iid = (A.runs_quantile(0.95, self.comps)
                - A.runs_quantile(0.05, self.comps))
-        out = _cli(["--supply", "scarce", "--t-raw", "200", "--p-ml-start",
-                    "90", "--p-ml-stop", "90", "--no-legend"])
-        m = re.search(r"1e([\d.]+)\s+1e([\d.]+)\s+1e([\d.]+)", out)
-        self.assertIsNotNone(m, out)
-        self.assertGreater(float(m.group(3)) - float(m.group(1)), iid)
+        import csv as _csv
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "band.csv")
+            _cli(["--supply", "scarce", "--t-raw", "200", "--p-ml-start",
+                  "90", "--p-ml-stop", "90", "--no-legend", "--csv", path])
+            with open(path, encoding="utf-8") as f:
+                rows = list(_csv.DictReader(f))
+        row = next(r for r in rows if r["p_ml_pct"].startswith("90"))
+        band = float(row["log10_runs_p95"]) - float(row["log10_runs_p05"])
+        self.assertGreater(band, iid)
 
 
 # ==========================================================================
