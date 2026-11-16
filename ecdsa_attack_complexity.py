@@ -56,6 +56,13 @@ same model as v2 and produces identical numbers)
   * min_raw_for_pool now searches pool size exactly (step 1) instead of in
     coarse jumps of m_req//8, so the "minimum pool" advice is no longer rounded
     up by as much as ~7 signatures.
+  * MULTI-POOL output: --t-raw now accepts several sizes (--t-raw 100 200 300)
+    and --t-raw-range MIN MAX STEP generates an arithmetic sweep, printing one
+    table per pool size instead of only the infinite-pool (unlimited) limit.
+    The quantiles move strongly with pool size -- a finite pool is always worse
+    than the i.i.d. floor, and near the minimum the mean becomes unbounded and
+    the 95th percentile unreachable -- so seeing them side by side is what makes
+    the pool a tunable strategy variable rather than a hidden assumption.
 
 Nothing below the "Pure mathematics" line was changed in substance from v2; the
 model and every formula are preserved. Only presentation was reworked.
@@ -614,7 +621,8 @@ def print_provenance(cfg: Config) -> None:
         print(f"  corpus        : {cfg.corpus}")
 
 
-def print_parameters(cfg: Config, leak_bits: Sequence[int]) -> None:
+def print_parameters(cfg: Config, leak_bits: Sequence[int],
+                     pool_sizes: Sequence[int | None] = (None,)) -> None:
     print()
     print("INPUTS YOU CHOSE")
     print("-" * 104)
@@ -631,7 +639,7 @@ def print_parameters(cfg: Config, leak_bits: Sequence[int]) -> None:
     print(f"  safety_factor        = {cfg.safety_factor}   "
           f"[UNVALIDATED FUDGE on the information bound]")
     print(f"  supply model         = {cfg.supply}"
-          + (f"   (T_raw = {cfg.t_raw} signatures available)"
+          + (f"   (one table per pool; T_raw in {list(pool_sizes)})"
              if cfg.supply == "scarce" else
              "   (i.i.d. limit: assumes a large pool, hundreds+; see note)"))
     if cfg.supply == "scarce":
@@ -661,8 +669,12 @@ def print_how_to_read(cfg: Config) -> None:
     print("               right) = p_b * p_m. One bad signature spoils a batch.")
     print(f"  m_req        signatures that must ALL be clean in one batch "
           f"(= {_first_m_req(cfg)} here).")
-    if cfg.supply == "scarce":
-        print("  P(cln|pass)  pool purity after the pre-filter (Bayes).")
+    if cfg.supply == "scarce" and abs(cfg.filter_recall
+                                      - cfg.filter_pass_rate) > 1e-12:
+        print("  P(cln|pass)  pool purity after the pre-filter (Bayes). Shown")
+        print("               only with an informative filter; with the default")
+        print("               (recall = pass_rate) it equals p_clean and is")
+        print("               omitted as redundant.")
     print("  odds/try     chance that ONE random batch is 100% clean, PER TRY")
     print("               (= q). '1 in 24.5M' = each attempt has a 1/24,500,000")
     print("               chance. This is NOT the total you need -- it is the odds")
@@ -712,7 +724,13 @@ def print_table(rows: list[Row], cfg: Config) -> None:
     print()
 
     cols = [("p_ml%", 7), ("p_clean", 9)]
-    if cfg.supply == "scarce":
+    # P(clean|pass) only differs from p_clean when the pre-filter is
+    # informative (recall != pass_rate); otherwise it equals p_clean and the
+    # column would be a redundant copy, so it is shown only when it carries
+    # new information.
+    show_post = (cfg.supply == "scarce"
+                 and abs(cfg.filter_recall - cfg.filter_pass_rate) > 1e-12)
+    if show_post:
         cols.append(("P(cln|pass)", 12))
     cols += [("odds/try", 12),
              ("N:lucky5%", 11), ("N:median", 11), ("N:avg", 11),
@@ -723,7 +741,7 @@ def print_table(rows: list[Row], cfg: Config) -> None:
     print("  " + "-" * sum(w for _, w in cols))
     for r in rows:
         cells = [f"{r.p_ml_pct:g}", f"{r.p_clean:.4f}"]
-        if cfg.supply == "scarce":
+        if show_post:
             cells.append(f"{r.p_clean_post:.4f}")
         cells.append(human_odds(r.log10_q))
         cells += [human_count(r.log10_runs_p05),
@@ -852,9 +870,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    default="unlimited",
                    help="unlimited: i.i.d. draws, q = p_clean^m_req. "
                         "scarce: a fixed pool derived from --t-raw.")
-    s.add_argument("--t-raw", type=int, default=None,
-                   help="signatures available under the target key "
-                        "(required for --supply scarce)")
+    s.add_argument("--t-raw", type=int, nargs="+", default=None,
+                   metavar="N",
+                   help="signatures available under the target key; one or more "
+                        "values print one table per pool, e.g. --t-raw 100 200 "
+                        "300 (required for --supply scarce)")
+    s.add_argument("--t-raw-range", type=int, nargs=3,
+                   metavar=("MIN", "MAX", "STEP"), default=None,
+                   help="generate pool sizes MIN, MIN+STEP, ... up to MAX "
+                        "(scarce mode); combined with any --t-raw values")
     s.add_argument("--filter-pass-rate", type=float, default=1.0,
                    help="P(signature passes the pre-filter); scarce mode only")
     s.add_argument("--filter-recall", type=float, default=None,
@@ -925,8 +949,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if not (0.0 < a.p_reduction_success <= 1.0):
         p.error("--p-reduction-success must be in (0, 1]")
     if a.supply == "scarce":
-        if a.t_raw is None or a.t_raw < 1:
-            p.error("--supply scarce requires --t-raw N (N >= 1)")
+        pools = list(a.t_raw) if a.t_raw else []
+        if a.t_raw_range is not None:
+            lo, hi, step = a.t_raw_range
+            if step < 1:
+                p.error("--t-raw-range STEP must be >= 1")
+            if lo < 1 or hi < lo:
+                p.error("--t-raw-range requires 1 <= MIN <= MAX")
+            pools += list(range(lo, hi + 1, step))
+        if not pools:
+            p.error("--supply scarce requires --t-raw N [N ...] "
+                    "or --t-raw-range MIN MAX STEP")
+        if any(T < 1 for T in pools):
+            p.error("pool sizes (--t-raw) must be >= 1")
+        a.pool_sizes = sorted(set(pools))
         if not (0.0 < a.filter_pass_rate <= 1.0):
             p.error("--filter-pass-rate must be in (0, 1]")
         if a.filter_recall is None:
@@ -934,13 +970,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         if not (0.0 <= a.filter_recall <= 1.0):
             p.error("--filter-recall must be in [0, 1]")
     else:
-        if a.t_raw is not None:
-            p.error("--t-raw only applies to --supply scarce")
+        if a.t_raw is not None or a.t_raw_range is not None:
+            p.error("--t-raw / --t-raw-range only apply to --supply scarce")
         if a.filter_pass_rate != 1.0 or a.filter_recall not in (None, 1.0):
             p.error("--filter-pass-rate / --filter-recall only apply to "
                     "--supply scarce (with unlimited supply the pool is not "
                     "a binding constraint)")
         a.filter_recall = 1.0
+        a.pool_sizes = [None]
     return a
 
 
@@ -952,7 +989,7 @@ def main(argv: list[str] | None = None) -> int:
         leak_bits=a.leak_bits[0], safety_factor=a.safety_factor,
         dim_overhead=a.dim_overhead, p_mag=a.p_mag, p_mag_mode=a.p_mag_mode,
         correlation=a.correlation, acc_start=a.p_ml_start, acc_stop=a.p_ml_stop,
-        acc_step=a.p_ml_step, supply=a.supply, t_raw=a.t_raw,
+        acc_step=a.p_ml_step, supply=a.supply, t_raw=[200, 300, 400, 500, 600, 700, 800, 900, 1000],
         filter_pass_rate=a.filter_pass_rate, filter_recall=a.filter_recall,
         p_reduction_success=a.p_reduction_success,
         t_per_run_sec=a.t_per_run_sec, t_run_dim_ref=a.t_run_dim_ref,
@@ -964,7 +1001,7 @@ def main(argv: list[str] | None = None) -> int:
         print_banner()
     if not a.no_legend:
         print_provenance(base)
-        print_parameters(base, a.leak_bits)
+        print_parameters(base, a.leak_bits, a.pool_sizes)
         print_how_to_read(base)
 
     if len(a.leak_bits) > 1 and a.t_run_doubling_dims is None:
@@ -976,14 +1013,16 @@ def main(argv: list[str] | None = None) -> int:
 
     all_rows: list[Row] = []
     for L in a.leak_bits:
-        cfg = dataclasses.replace(base, leak_bits=L)
-        try:
-            rows = build_rows(cfg)
-        except ValueError as exc:
-            print(f"\n  L = {L}: {exc}")
-            continue
-        print_table(rows, cfg)
-        all_rows.extend(rows)
+        for T in a.pool_sizes:
+            cfg = dataclasses.replace(base, leak_bits=L, t_raw=T)
+            try:
+                rows = build_rows(cfg)
+            except ValueError as exc:
+                label = f"L = {L}" + ("" if T is None else f", pool T_raw = {T}")
+                print(f"\n  {label}: {exc}")
+                continue
+            print_table(rows, cfg)
+            all_rows.extend(rows)
 
     if not a.no_legend:
         print_footer()

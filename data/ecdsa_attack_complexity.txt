@@ -16,10 +16,10 @@
 
 PROVENANCE (so this table can be reproduced and dated)
 --------------------------------------------------------------------------------------------------------
-  generated     : 2026-11-13 18:23 UTC
+  generated     : 2026-11-16 21:26 UTC
   script        : ecdsa_attack_complexity.py  (v3, beginner-legible)
-  git commit    : 48a6d47
-  command       : ecdsa_attack_complexity.py
+  git commit    : d36ed01
+  command       : ecdsa_attack_complexity.py --supply scarce --t-raw 200 300 400 500 600 700 800 900 1000
   curve         : secp256k1  (order n, log2 n = 256 bits)
 
 INPUTS YOU CHOSE
@@ -28,7 +28,8 @@ INPUTS YOU CHOSE
   magnitude accuracy   = 82.00%   (p_m, held FIXED; combined as p_clean = p_b * p_m)
   leading-digit sweep  = 80%..99% step 1%   (p_b, the SWEPT variable = table rows)
   safety_factor        = 1.3   [UNVALIDATED FUDGE on the information bound]
-  supply model         = unlimited   (i.i.d. limit: assumes a large pool, hundreds+; see note)
+  supply model         = scarce   (one table per pool; T_raw in [200, 300, 400, 500, 600, 700, 800, 900, 1000])
+  filter pass / recall = 1.0 / 1.0
   reduction success    = 1.0   [OPTIMISTIC: reduction assumed infallible]
   seconds per reduction= 2 s at dim first L's dim  [CALIBRATE THIS on your own hardware]
                          [FLAT model: cost does NOT grow with lattice size -- WRONG; do not compare rows across different L]
@@ -59,37 +60,314 @@ HOW TO READ EACH COLUMN
                Units: s, min, h, d (day), mo (month), yr (year).
   NUMBER FORMAT: '16K'=16 thousand, '16M'=million, '13B'=billion,
                '2.5T'=trillion; above that, standard sci '4.0e17'.
-  POOL SIZE: unlimited mode is the best-case infinite-pool limit;
-             a batch of exactly m_req clean signatures cannot be
-             guaranteed from a tiny pool. Run  --supply scarce
-             --t-raw N  to size the actual signature pool you need.
 
 ========================================================================================================
 RESULTS   L = 6 bits  |  m_req = 56 clean signatures per batch  |  lattice dim = 58  |  t/run = 2 s
+          pool: T_raw = 200 available, T_filt = 200 after filter
 ========================================================================================================
 
     p_ml%  p_clean    odds/try  N:lucky5%   N:median      N:avg   N:bad95%   t@1core   t@8core  t@64core
   ------------------------------------------------------------------------------------------------------
-       80   0.6560  1 in 17.9B       919M      12.4B      17.9B      53.7B    788 yr     98 yr     12 yr
-       81   0.6642   1 in 8.9B       458M       6.2B       8.9B      26.8B    393 yr     49 yr    6.1 yr
-       82   0.6724   1 in 4.5B       231M       3.1B       4.5B      13.5B    198 yr     25 yr    3.1 yr
-       83   0.6806   1 in 2.3B       117M       1.6B       2.3B       6.8B    100 yr     13 yr    1.6 yr
-       84   0.6888   1 in 1.2B      59.8M       808M       1.2B       3.5B     51 yr    6.4 yr    9.7 mo
-       85   0.6970   1 in 601M      30.8M       417M       601M       1.8B     26 yr    3.3 yr    5.0 mo
-       86   0.7052   1 in 312M      16.0M       216M       312M       935M     14 yr    1.7 yr    2.6 mo
-       87   0.7134   1 in 163M       8.4M       113M       163M       490M    7.2 yr     11 mo    1.4 mo
-       88   0.7216  1 in 86.2M       4.4M      59.7M      86.2M       258M    3.8 yr    5.8 mo      22 d
-       89   0.7298  1 in 45.8M       2.3M      31.7M      45.8M       137M    2.0 yr    3.1 mo      11 d
-       90   0.7380  1 in 24.5M       1.3M      17.0M      24.5M      73.3M    1.1 yr    1.6 mo     6.1 d
-       91   0.7462  1 in 13.2M       676K       9.1M      13.2M      39.5M    7.1 mo      26 d     3.3 d
-       92   0.7544   1 in 7.1M       367K       5.0M       7.1M      21.4M    3.8 mo      14 d     1.8 d
-       93   0.7626   1 in 3.9M       200K       2.7M       3.9M      11.7M    2.1 mo     7.8 d      23 h
-       94   0.7708   1 in 2.1M       110K       1.5M       2.1M       6.4M    1.1 mo     4.3 d      13 h
-       95   0.7790   1 in 1.2M      60.8K       822K       1.2M       3.6M      19 d     2.4 d     7.1 h
-       96   0.7872   1 in 660K      33.8K       457K       660K       2.0M      11 d     1.3 d     4.0 h
-       97   0.7954   1 in 369K      18.9K       256K       369K       1.1M     5.9 d      18 h     2.2 h
-       98   0.8036   1 in 208K      10.7K       144K       208K       623K     3.3 d      10 h     1.3 h
-       99   0.8118   1 in 118K       6.0K      81.6K       118K       353K     1.9 d     5.7 h    42 min
+       80   0.6560   1 in 4.2T       4.4B       2.1T     6.2e17     1.9e15  1.3e5 yr  1.7e4 yr  2.1e3 yr
+       81   0.6642   1 in 1.4T       2.0B       858B     1.1e17       681T  5.4e4 yr  6.8e3 yr    851 yr
+       82   0.6724   1 in 807B       917M       354B     2.3e16       244T  2.2e4 yr  2.8e3 yr    351 yr
+       83   0.6806   1 in 278B       428M       148B     4.7e15      88.7T  9.4e3 yr  1.2e3 yr    147 yr
+       84   0.6888  1 in 97.6B       202M      62.7B     1.0e15      32.8T  4.0e3 yr    497 yr     62 yr
+       85   0.6970  1 in 58.3B      96.5M      27.0B       242T      12.3T  1.7e3 yr    214 yr     27 yr
+       86   0.7052  1 in 21.1B      46.6M      11.7B      60.8T       4.7T    744 yr     93 yr     12 yr
+       87   0.7134   1 in 7.8B      22.8M       5.2B      16.1T       1.8T    328 yr     41 yr    5.1 yr
+       88   0.7216   1 in 4.7B      11.2M       2.3B       4.5T       718B    146 yr     18 yr    2.3 yr
+       89   0.7298   1 in 1.8B       5.6M       1.0B       1.3T       286B     66 yr    8.3 yr    1.0 yr
+       90   0.7380   1 in 691M       2.8M       476M       404B       115B     30 yr    3.8 yr    5.7 mo
+       91   0.7462   1 in 432M       1.4M       220M       128B      47.2B     14 yr    1.7 yr    2.6 mo
+       92   0.7544   1 in 170M       736K       103M      41.8B      19.6B    6.5 yr    9.9 mo    1.2 mo
+       93   0.7626  1 in 68.1M       381K      48.4M      14.1B       8.2B    3.1 yr    4.7 mo      17 d
+       94   0.7708  1 in 43.4M       199K      23.0M       4.9B       3.5B    1.5 yr    2.2 mo     8.3 d
+       95   0.7790  1 in 17.7M       105K      11.1M       1.8B       1.5B    8.6 mo    1.1 mo     4.0 d
+       96   0.7872  1 in 11.4M      55.9K       5.4M       648M       645M    4.2 mo      16 d     2.0 d
+       97   0.7954   1 in 4.8M      30.0K       2.6M       244M       283M    2.0 mo     7.7 d      23 h
+       98   0.8036   1 in 2.0M      16.2K       1.3M      94.0M       125M    1.0 mo     3.8 d      11 h
+       99   0.8118   1 in 1.3M       8.8K       655K      37.0M      55.8M      15 d     1.9 d     5.7 h
+  ------------------------------------------------------------------------------------------------------
+  N is a COUNT OF ATTEMPTS (lattice reductions), not a combination
+  C(.,.) and not a ceiling -- it varies and has NO maximum. 'odds/try'
+  is the per-attempt chance and equals the AVERAGE count (N:avg);
+  unlucky runs (N:bad95%) exceed that average, which is normal here.
+  Times are at the MEDIAN N; the band scales time the same way.
+  ALL numbers assume the oracle (see banner).
+
+========================================================================================================
+RESULTS   L = 6 bits  |  m_req = 56 clean signatures per batch  |  lattice dim = 58  |  t/run = 2 s
+          pool: T_raw = 300 available, T_filt = 300 after filter
+========================================================================================================
+
+    p_ml%  p_clean    odds/try  N:lucky5%   N:median      N:avg   N:bad95%   t@1core   t@8core  t@64core
+  ------------------------------------------------------------------------------------------------------
+       80   0.6560   1 in 413B       1.9B       257B      52.3T      41.4T  1.6e4 yr  2.0e3 yr    254 yr
+       81   0.6642   1 in 213B       912M       114B      18.5T      16.7T  7.2e3 yr    901 yr    113 yr
+       82   0.6724  1 in 79.8B       440M      50.9B       6.7T       6.8T  3.2e3 yr    404 yr     50 yr
+       83   0.6806  1 in 41.9B       214M      23.1B       2.5T       2.8T  1.5e3 yr    183 yr     23 yr
+       84   0.6888  1 in 16.2B       105M      10.6B       928B       1.2T    671 yr     84 yr     10 yr
+       85   0.6970   1 in 8.7B      52.4M       4.9B       357B       504B    311 yr     39 yr    4.9 yr
+       86   0.7052   1 in 3.4B      26.3M       2.3B       140B       216B    146 yr     18 yr    2.3 yr
+       87   0.7134   1 in 1.9B      13.3M       1.1B      55.6B      94.0B     69 yr    8.6 yr    1.1 yr
+       88   0.7216   1 in 1.0B       6.8M       519M      22.6B      41.3B     33 yr    4.1 yr    6.3 mo
+       89   0.7298   1 in 420M       3.5M       251M       9.3B      18.3B     16 yr    2.0 yr    3.0 mo
+       90   0.7380   1 in 234M       1.8M       122M       3.9B       8.2B    7.7 yr     12 mo    1.5 mo
+       91   0.7462  1 in 98.2M       955K      60.1M       1.7B       3.7B    3.8 yr    5.8 mo      22 d
+       92   0.7544  1 in 55.5M       505K      29.8M       713M       1.7B    1.9 yr    2.9 mo      11 d
+       93   0.7626  1 in 23.8M       269K      14.9M       311M       788M     12 mo    1.4 mo     5.4 d
+       94   0.7708  1 in 13.7M       144K       7.5M       138M       367M    5.8 mo      22 d     2.7 d
+       95   0.7790   1 in 6.0M      78.1K       3.8M      61.9M       173M    3.0 mo      11 d     1.4 d
+       96   0.7872   1 in 3.5M      42.6K       2.0M      28.1M      82.0M    1.5 mo     5.7 d      17 h
+       97   0.7954   1 in 1.6M      23.4K       1.0M      12.9M      39.3M      24 d     3.0 d     8.9 h
+       98   0.8036   1 in 915K      12.9K       533K       6.0M      18.9M      12 d     1.5 d     4.6 h
+       99   0.8118   1 in 417K       7.2K       280K       2.8M       9.2M     6.5 d      19 h     2.4 h
+  ------------------------------------------------------------------------------------------------------
+  N is a COUNT OF ATTEMPTS (lattice reductions), not a combination
+  C(.,.) and not a ceiling -- it varies and has NO maximum. 'odds/try'
+  is the per-attempt chance and equals the AVERAGE count (N:avg);
+  unlucky runs (N:bad95%) exceed that average, which is normal here.
+  Times are at the MEDIAN N; the band scales time the same way.
+  ALL numbers assume the oracle (see banner).
+
+========================================================================================================
+RESULTS   L = 6 bits  |  m_req = 56 clean signatures per batch  |  lattice dim = 58  |  t/run = 2 s
+          pool: T_raw = 400 available, T_filt = 400 after filter
+========================================================================================================
+
+    p_ml%  p_clean    odds/try  N:lucky5%   N:median      N:avg   N:bad95%   t@1core   t@8core  t@64core
+  ------------------------------------------------------------------------------------------------------
+       80   0.6560   1 in 195B       1.4B       105B       3.7T       7.6T  6.6e3 yr    830 yr    104 yr
+       81   0.6642  1 in 75.3B       688M      48.0B       1.5T       3.2T  3.0e3 yr    381 yr     48 yr
+       82   0.6724  1 in 37.3B       337M      22.3B       603B       1.4T  1.4e3 yr    177 yr     22 yr
+       83   0.6806  1 in 18.6B       167M      10.4B       251B       612B    662 yr     83 yr     10 yr
+       84   0.6888   1 in 7.5B      83.5M       4.9B       106B       270B    314 yr     39 yr    4.9 yr
+       85   0.6970   1 in 3.8B      42.1M       2.4B      45.2B       121B    150 yr     19 yr    2.3 yr
+       86   0.7052   1 in 2.0B      21.4M       1.1B      19.6B      54.5B     72 yr    9.1 yr    1.1 yr
+       87   0.7134   1 in 1.0B      11.0M       557M       8.6B      24.8B     35 yr    4.4 yr    6.7 mo
+       88   0.7216   1 in 425M       5.7M       274M       3.8B      11.4B     17 yr    2.2 yr    3.3 mo
+       89   0.7298   1 in 224M       3.0M       136M       1.7B       5.3B    8.6 yr    1.1 yr    1.6 mo
+       90   0.7380   1 in 119M       1.6M      68.1M       784M       2.5B    4.3 yr    6.6 mo      25 d
+       91   0.7462  1 in 63.4M       829K      34.4M       362M       1.2B    2.2 yr    3.3 mo      12 d
+       92   0.7544  1 in 27.8M       443K      17.5M       168M       564M    1.1 yr    1.7 mo     6.3 d
+       93   0.7626  1 in 15.1M       238K       9.0M      79.4M       272M    7.0 mo      26 d     3.3 d
+       94   0.7708   1 in 8.2M       129K       4.7M      37.8M       132M    3.6 mo      13 d     1.7 d
+       95   0.7790   1 in 3.7M      70.6K       2.4M      18.2M      64.8M    1.9 mo     7.0 d      21 h
+       96   0.7872   1 in 2.1M      38.8K       1.3M       8.8M      32.0M      30 d     3.7 d      11 h
+       97   0.7954   1 in 1.2M      21.5K       678K       4.3M      15.9M      16 d     2.0 d     5.9 h
+       98   0.8036   1 in 647K      12.0K       362K       2.1M       8.0M     8.4 d     1.0 d     3.1 h
+       99   0.8118   1 in 303K       6.7K       195K       1.1M       4.0M     4.5 d      14 h     1.7 h
+  ------------------------------------------------------------------------------------------------------
+  N is a COUNT OF ATTEMPTS (lattice reductions), not a combination
+  C(.,.) and not a ceiling -- it varies and has NO maximum. 'odds/try'
+  is the per-attempt chance and equals the AVERAGE count (N:avg);
+  unlucky runs (N:bad95%) exceed that average, which is normal here.
+  Times are at the MEDIAN N; the band scales time the same way.
+  ALL numbers assume the oracle (see banner).
+
+========================================================================================================
+RESULTS   L = 6 bits  |  m_req = 56 clean signatures per batch  |  lattice dim = 58  |  t/run = 2 s
+          pool: T_raw = 500 available, T_filt = 500 after filter
+========================================================================================================
+
+    p_ml%  p_clean    odds/try  N:lucky5%   N:median      N:avg   N:bad95%   t@1core   t@8core  t@64core
+  ------------------------------------------------------------------------------------------------------
+       80   0.6560   1 in 107B       1.2B      63.8B       984B       2.9T  4.0e3 yr    506 yr     63 yr
+       81   0.6642  1 in 50.8B       601M      29.9B       420B       1.3T  1.9e3 yr    237 yr     30 yr
+       82   0.6724  1 in 24.4B       297M      14.1B       182B       563B    895 yr    112 yr     14 yr
+       83   0.6806  1 in 11.8B       148M       6.7B      79.6B       253B    427 yr     53 yr    6.7 yr
+       84   0.6888   1 in 5.8B      74.8M       3.2B      35.3B       115B    206 yr     26 yr    3.2 yr
+       85   0.6970   1 in 2.9B      38.0M       1.6B      15.9B      52.9B    100 yr     13 yr    1.6 yr
+       86   0.7052   1 in 1.2B      19.5M       776M       7.2B      24.6B     49 yr    6.2 yr    9.4 mo
+       87   0.7134   1 in 605M      10.1M       385M       3.3B      11.5B     24 yr    3.0 yr    4.6 mo
+       88   0.7216   1 in 307M       5.2M       192M       1.5B       5.4B     12 yr    1.5 yr    2.3 mo
+       89   0.7298   1 in 157M       2.8M      97.0M       722M       2.6B    6.1 yr    9.4 mo    1.2 mo
+       90   0.7380  1 in 81.2M       1.5M      49.3M       343M       1.2B    3.1 yr    4.8 mo      18 d
+       91   0.7462  1 in 42.3M       776K      25.3M       164M       607M    1.6 yr    2.4 mo     9.1 d
+       92   0.7544  1 in 22.1M       417K      13.1M      79.6M       297M     10 mo    1.3 mo     4.7 d
+       93   0.7626  1 in 11.7M       225K       6.8M      38.9M       147M    5.3 mo      20 d     2.5 d
+       94   0.7708   1 in 6.2M       123K       3.6M      19.2M      73.0M    2.8 mo      10 d     1.3 d
+       95   0.7790   1 in 3.3M      67.3K       1.9M       9.5M      36.6M    1.5 mo     5.5 d      16 h
+       96   0.7872   1 in 1.5M      37.1K       1.0M       4.8M      18.5M      23 d     2.9 d     8.7 h
+       97   0.7954   1 in 838K      20.6K       540K       2.4M       9.4M      13 d     1.6 d     4.7 h
+       98   0.8036   1 in 459K      11.5K       292K       1.2M       4.8M     6.8 d      20 h     2.5 h
+       99   0.8118   1 in 253K       6.5K       159K       639K       2.5M     3.7 d      11 h     1.4 h
+  ------------------------------------------------------------------------------------------------------
+  N is a COUNT OF ATTEMPTS (lattice reductions), not a combination
+  C(.,.) and not a ceiling -- it varies and has NO maximum. 'odds/try'
+  is the per-attempt chance and equals the AVERAGE count (N:avg);
+  unlucky runs (N:bad95%) exceed that average, which is normal here.
+  Times are at the MEDIAN N; the band scales time the same way.
+  ALL numbers assume the oracle (see banner).
+
+========================================================================================================
+RESULTS   L = 6 bits  |  m_req = 56 clean signatures per batch  |  lattice dim = 58  |  t/run = 2 s
+          pool: T_raw = 600 available, T_filt = 600 after filter
+========================================================================================================
+
+    p_ml%  p_clean    odds/try  N:lucky5%   N:median      N:avg   N:bad95%   t@1core   t@8core  t@64core
+  ------------------------------------------------------------------------------------------------------
+       80   0.6560  1 in 72.7B       1.1B      46.7B       447B       1.5T  3.0e3 yr    370 yr     46 yr
+       81   0.6642  1 in 34.0B       558M      22.1B       197B       682B  1.4e3 yr    175 yr     22 yr
+       82   0.6724  1 in 18.6B       277M      10.6B      88.0B       310B    670 yr     84 yr     10 yr
+       83   0.6806   1 in 8.9B       139M       5.1B      39.7B       142B    324 yr     40 yr    5.1 yr
+       84   0.6888   1 in 4.3B      70.3M       2.5B      18.2B      65.8B    158 yr     20 yr    2.5 yr
+       85   0.6970   1 in 2.1B      35.9M       1.2B       8.4B      30.8B     78 yr    9.7 yr    1.2 yr
+       86   0.7052   1 in 1.0B      18.5M       608M       3.9B      14.6B     39 yr    4.8 yr    7.3 mo
+       87   0.7134   1 in 501M       9.6M       304M       1.8B       6.9B     19 yr    2.4 yr    3.7 mo
+       88   0.7216   1 in 250M       5.0M       154M       882M       3.3B    9.7 yr    1.2 yr    1.9 mo
+       89   0.7298   1 in 126M       2.6M      78.3M       425M       1.6B    5.0 yr    7.5 mo      28 d
+       90   0.7380  1 in 63.7M       1.4M      40.2M       206M       793M    2.5 yr    3.9 mo      15 d
+       91   0.7462  1 in 32.6M       748K      20.8M       101M       391M    1.3 yr    2.0 mo     7.5 d
+       92   0.7544  1 in 16.8M       403K      10.8M      50.2M       195M    8.4 mo    1.0 mo     3.9 d
+       93   0.7626   1 in 8.7M       218K       5.7M      25.1M      97.7M    4.4 mo      17 d     2.1 d
+       94   0.7708   1 in 5.2M       119K       3.0M      12.6M      49.4M    2.3 mo     8.7 d     1.1 d
+       95   0.7790   1 in 2.7M      65.5K       1.6M       6.4M      25.1M    1.2 mo     4.7 d      14 h
+       96   0.7872   1 in 1.4M      36.3K       865K       3.3M      12.9M      20 d     2.5 d     7.5 h
+       97   0.7954   1 in 774K      20.2K       468K       1.7M       6.7M      11 d     1.4 d     4.1 h
+       98   0.8036   1 in 416K      11.3K       255K       885K       3.5M     5.9 d      18 h     2.2 h
+       99   0.8118   1 in 225K       6.4K       140K       464K       1.8M     3.2 d     9.7 h     1.2 h
+  ------------------------------------------------------------------------------------------------------
+  N is a COUNT OF ATTEMPTS (lattice reductions), not a combination
+  C(.,.) and not a ceiling -- it varies and has NO maximum. 'odds/try'
+  is the per-attempt chance and equals the AVERAGE count (N:avg);
+  unlucky runs (N:bad95%) exceed that average, which is normal here.
+  Times are at the MEDIAN N; the band scales time the same way.
+  ALL numbers assume the oracle (see banner).
+
+========================================================================================================
+RESULTS   L = 6 bits  |  m_req = 56 clean signatures per batch  |  lattice dim = 58  |  t/run = 2 s
+          pool: T_raw = 700 available, T_filt = 700 after filter
+========================================================================================================
+
+    p_ml%  p_clean    odds/try  N:lucky5%   N:median      N:avg   N:bad95%   t@1core   t@8core  t@64core
+  ------------------------------------------------------------------------------------------------------
+       80   0.6560  1 in 63.4B       1.1B      37.6B       263B       966B  2.4e3 yr    298 yr     37 yr
+       81   0.6642  1 in 29.2B       533M      18.0B       119B       440B  1.1e3 yr    142 yr     18 yr
+       82   0.6724  1 in 13.6B       266M       8.7B      54.1B       203B    549 yr     69 yr    8.6 yr
+       83   0.6806   1 in 7.3B       134M       4.2B      24.9B      94.2B    267 yr     33 yr    4.2 yr
+       84   0.6888   1 in 3.4B      67.7M       2.1B      11.6B      44.2B    131 yr     16 yr    2.1 yr
+       85   0.6970   1 in 1.7B      34.6M       1.0B       5.5B      21.0B     65 yr    8.1 yr    1.0 yr
+       86   0.7052   1 in 799M      17.9M       513M       2.6B      10.0B     33 yr    4.1 yr    6.2 mo
+       87   0.7134   1 in 440M       9.3M       259M       1.2B       4.8B     16 yr    2.1 yr    3.1 mo
+       88   0.7216   1 in 216M       4.9M       132M       605M       2.4B    8.4 yr    1.0 yr    1.6 mo
+       89   0.7298   1 in 107M       2.6M      67.5M       296M       1.2B    4.3 yr    6.5 mo      24 d
+       90   0.7380  1 in 53.8M       1.4M      34.9M       146M       574M    2.2 yr    3.4 mo      13 d
+       91   0.7462  1 in 30.4M       731K      18.2M      73.0M       286M    1.2 yr    1.8 mo     6.6 d
+       92   0.7544  1 in 15.5M       394K       9.5M      36.7M       144M    7.4 mo      28 d     3.5 d
+       93   0.7626   1 in 7.9M       214K       5.0M      18.6M      73.1M    3.9 mo      15 d     1.8 d
+       94   0.7708   1 in 4.1M       117K       2.7M       9.5M      37.4M    2.1 mo     7.8 d      23 h
+       95   0.7790   1 in 2.4M      64.5K       1.4M       4.9M      19.2M    1.1 mo     4.2 d      13 h
+       96   0.7872   1 in 1.2M      35.7K       780K       2.5M      10.0M      18 d     2.3 d     6.8 h
+       97   0.7954   1 in 659K      19.9K       424K       1.3M       5.2M     9.8 d     1.2 d     3.7 h
+       98   0.8036   1 in 350K      11.2K       232K       703K       2.7M     5.4 d      16 h     2.0 h
+       99   0.8118   1 in 208K       6.3K       128K       373K       1.4M     3.0 d     8.9 h     1.1 h
+  ------------------------------------------------------------------------------------------------------
+  N is a COUNT OF ATTEMPTS (lattice reductions), not a combination
+  C(.,.) and not a ceiling -- it varies and has NO maximum. 'odds/try'
+  is the per-attempt chance and equals the AVERAGE count (N:avg);
+  unlucky runs (N:bad95%) exceed that average, which is normal here.
+  Times are at the MEDIAN N; the band scales time the same way.
+  ALL numbers assume the oracle (see banner).
+
+========================================================================================================
+RESULTS   L = 6 bits  |  m_req = 56 clean signatures per batch  |  lattice dim = 58  |  t/run = 2 s
+          pool: T_raw = 800 available, T_filt = 800 after filter
+========================================================================================================
+
+    p_ml%  p_clean    odds/try  N:lucky5%   N:median      N:avg   N:bad95%   t@1core   t@8core  t@64core
+  ------------------------------------------------------------------------------------------------------
+       80   0.6560  1 in 51.2B       1.0B      32.1B       180B       688B  2.0e3 yr    255 yr     32 yr
+       81   0.6642  1 in 26.2B       517M      15.4B      82.5B       317B    979 yr    122 yr     15 yr
+       82   0.6724  1 in 12.1B       258M       7.5B      38.1B       147B    475 yr     59 yr    7.4 yr
+       83   0.6806   1 in 6.3B       130M       3.7B      17.8B      69.2B    233 yr     29 yr    3.6 yr
+       84   0.6888   1 in 2.9B      66.1M       1.8B       8.4B      32.8B    115 yr     14 yr    1.8 yr
+       85   0.6970   1 in 1.4B      33.8M       903M       4.0B      15.7B     57 yr    7.2 yr     11 mo
+       86   0.7052   1 in 745M      17.5M       454M       1.9B       7.6B     29 yr    3.6 yr    5.5 mo
+       87   0.7134   1 in 360M       9.1M       230M       941M       3.7B     15 yr    1.8 yr    2.8 mo
+       88   0.7216   1 in 195M       4.8M       118M       462M       1.8B    7.5 yr     11 mo    1.4 mo
+       89   0.7298  1 in 95.8M       2.5M      60.7M       229M       900M    3.8 yr    5.9 mo      22 d
+       90   0.7380  1 in 52.5M       1.3M      31.5M       114M       450M    2.0 yr    3.0 mo      11 d
+       91   0.7462  1 in 26.3M       720K      16.5M      57.6M       226M    1.0 yr    1.6 mo     6.0 d
+       92   0.7544  1 in 13.2M       389K       8.7M      29.3M       115M    6.7 mo      25 d     3.1 d
+       93   0.7626   1 in 7.4M       212K       4.6M      15.0M      58.8M    3.6 mo      13 d     1.7 d
+       94   0.7708   1 in 3.8M       116K       2.5M       7.7M      30.3M    1.9 mo     7.2 d      21 h
+       95   0.7790   1 in 2.2M      63.8K       1.3M       4.0M      15.7M    1.0 mo     3.9 d      12 h
+       96   0.7872   1 in 1.1M      35.4K       723K       2.1M       8.2M      17 d     2.1 d     6.3 h
+       97   0.7954   1 in 641K      19.7K       395K       1.1M       4.3M     9.1 d     1.1 d     3.4 h
+       98   0.8036   1 in 338K      11.1K       217K       594K       2.3M     5.0 d      15 h     1.9 h
+       99   0.8118   1 in 196K       6.3K       120K       319K       1.2M     2.8 d     8.3 h     1.0 h
+  ------------------------------------------------------------------------------------------------------
+  N is a COUNT OF ATTEMPTS (lattice reductions), not a combination
+  C(.,.) and not a ceiling -- it varies and has NO maximum. 'odds/try'
+  is the per-attempt chance and equals the AVERAGE count (N:avg);
+  unlucky runs (N:bad95%) exceed that average, which is normal here.
+  Times are at the MEDIAN N; the band scales time the same way.
+  ALL numbers assume the oracle (see banner).
+
+========================================================================================================
+RESULTS   L = 6 bits  |  m_req = 56 clean signatures per batch  |  lattice dim = 58  |  t/run = 2 s
+          pool: T_raw = 900 available, T_filt = 900 after filter
+========================================================================================================
+
+    p_ml%  p_clean    odds/try  N:lucky5%   N:median      N:avg   N:bad95%   t@1core   t@8core  t@64core
+  ------------------------------------------------------------------------------------------------------
+       80   0.6560  1 in 48.1B       1.0B      28.5B       136B       528B  1.8e3 yr    226 yr     28 yr
+       81   0.6642  1 in 21.8B       506M      13.8B      62.7B       245B    873 yr    109 yr     14 yr
+       82   0.6724  1 in 11.0B       253M       6.7B      29.3B       115B    425 yr     53 yr    6.6 yr
+       83   0.6806   1 in 5.1B       128M       3.3B      13.8B      54.4B    209 yr     26 yr    3.3 yr
+       84   0.6888   1 in 2.6B      64.9M       1.6B       6.6B      26.0B    104 yr     13 yr    1.6 yr
+       85   0.6970   1 in 1.4B      33.3M       819M       3.2B      12.5B     52 yr    6.5 yr    9.9 mo
+       86   0.7052   1 in 644M      17.2M       414M       1.5B       6.1B     26 yr    3.3 yr    5.0 mo
+       87   0.7134   1 in 339M       9.0M       211M       760M       3.0B     13 yr    1.7 yr    2.5 mo
+       88   0.7216   1 in 180M       4.7M       108M       376M       1.5B    6.9 yr     10 mo    1.3 mo
+       89   0.7298  1 in 87.7M       2.5M      55.9M       188M       739M    3.5 yr    5.4 mo      20 d
+       90   0.7380  1 in 47.2M       1.3M      29.1M      94.7M       372M    1.8 yr    2.8 mo      11 d
+       91   0.7462  1 in 23.4M       713K      15.3M      48.1M       189M     12 mo    1.5 mo     5.5 d
+       92   0.7544  1 in 12.8M       385K       8.1M      24.7M      96.4M    6.3 mo      23 d     2.9 d
+       93   0.7626   1 in 7.0M       210K       4.3M      12.7M      49.6M    3.3 mo      12 d     1.6 d
+       94   0.7708   1 in 3.6M       115K       2.3M       6.6M      25.7M    1.8 mo     6.7 d      20 h
+       95   0.7790   1 in 2.0M      63.3K       1.3M       3.5M      13.4M      29 d     3.6 d      11 h
+       96   0.7872   1 in 1.1M      35.1K       682K       1.8M       7.1M      16 d     2.0 d     5.9 h
+       97   0.7954   1 in 579K      19.6K       374K       977K       3.7M     8.7 d     1.1 d     3.2 h
+       98   0.8036   1 in 329K      11.0K       206K       524K       2.0M     4.8 d      14 h     1.8 h
+       99   0.8118   1 in 173K       6.2K       114K       283K       1.1M     2.6 d     7.9 h    60 min
+  ------------------------------------------------------------------------------------------------------
+  N is a COUNT OF ATTEMPTS (lattice reductions), not a combination
+  C(.,.) and not a ceiling -- it varies and has NO maximum. 'odds/try'
+  is the per-attempt chance and equals the AVERAGE count (N:avg);
+  unlucky runs (N:bad95%) exceed that average, which is normal here.
+  Times are at the MEDIAN N; the band scales time the same way.
+  ALL numbers assume the oracle (see banner).
+
+========================================================================================================
+RESULTS   L = 6 bits  |  m_req = 56 clean signatures per batch  |  lattice dim = 58  |  t/run = 2 s
+          pool: T_raw = 1000 available, T_filt = 1000 after filter
+========================================================================================================
+
+    p_ml%  p_clean    odds/try  N:lucky5%   N:median      N:avg   N:bad95%   t@1core   t@8core  t@64core
+  ------------------------------------------------------------------------------------------------------
+       80   0.6560  1 in 41.8B       1.0B      26.0B       109B       427B  1.6e3 yr    206 yr     26 yr
+       81   0.6642  1 in 20.6B       498M      12.6B      50.7B       200B    798 yr    100 yr     12 yr
+       82   0.6724  1 in 10.2B       249M       6.2B      23.9B      94.2B    390 yr     49 yr    6.1 yr
+       83   0.6806   1 in 4.7B       126M       3.0B      11.4B      44.8B    193 yr     24 yr    3.0 yr
+       84   0.6888   1 in 2.4B      64.1M       1.5B       5.5B      21.6B     96 yr     12 yr    1.5 yr
+       85   0.6970   1 in 1.2B      32.9M       759M       2.7B      10.5B     48 yr    6.0 yr    9.2 mo
+       86   0.7052   1 in 623M      17.0M       384M       1.3B       5.1B     24 yr    3.0 yr    4.6 mo
+       87   0.7134   1 in 323M       8.9M       196M       643M       2.5B     12 yr    1.6 yr    2.4 mo
+       88   0.7216   1 in 155M       4.7M       101M       320M       1.3B    6.4 yr    9.7 mo    1.2 mo
+       89   0.7298  1 in 81.8M       2.5M      52.4M       161M       631M    3.3 yr    5.1 mo      19 d
+       90   0.7380  1 in 43.4M       1.3M      27.4M      81.8M       319M    1.7 yr    2.6 mo     9.9 d
+       91   0.7462  1 in 23.2M       707K      14.4M      41.8M       163M     11 mo    1.4 mo     5.2 d
+       92   0.7544  1 in 12.5M       383K       7.7M      21.6M      83.6M    5.9 mo      22 d     2.8 d
+       93   0.7626   1 in 6.2M       208K       4.1M      11.2M      43.3M    3.2 mo      12 d     1.5 d
+       94   0.7708   1 in 3.4M       114K       2.2M       5.9M      22.6M    1.7 mo     6.4 d      19 h
+       95   0.7790   1 in 1.9M      63.0K       1.2M       3.1M      11.8M      28 d     3.5 d      10 h
+       96   0.7872   1 in 1.0M      34.9K       652K       1.6M       6.3M      15 d     1.9 d     5.7 h
+       97   0.7954   1 in 575K      19.5K       358K       880K       3.3M     8.3 d     1.0 d     3.1 h
+       98   0.8036   1 in 299K      11.0K       198K       474K       1.8M     4.6 d      14 h     1.7 h
+       99   0.8118   1 in 168K       6.2K       110K       257K       964K     2.5 d     7.6 h    57 min
   ------------------------------------------------------------------------------------------------------
   N is a COUNT OF ATTEMPTS (lattice reductions), not a combination
   C(.,.) and not a ceiling -- it varies and has NO maximum. 'odds/try'

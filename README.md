@@ -580,7 +580,16 @@ log-scale values live in the `--csv` output.
 Signature supply is selected with `--supply {unlimited,scarce}`; `scarce`
 additionally takes `--t-raw`, `--filter-pass-rate` and `--filter-recall`, and an
 undersized pool is told the exact minimum it needs (`need T_raw >= N`, computed
-by an exact step-1 search). `--precision {orders,full}` is retained for the
+by an exact step-1 search). `--t-raw` accepts several sizes
+(`--t-raw 100 200 300`) and `--t-raw-range MIN MAX STEP` generates an arithmetic
+sweep; each pool size prints its own table, so the pool becomes a visible
+strategy variable rather than the hidden infinite-pool assumption. The quantiles
+move strongly with it: a finite pool is always worse than the i.i.d. floor, and
+near the minimum (`T_raw` just above `m_req / p_clean`) the mean is unbounded and
+the 95th percentile unreachable. The `P(clean|pass)` column is printed only when
+the pre-filter is informative (`recall != pass_rate`); under the default
+uninformative filter it equals `p_clean` exactly, so it is omitted as a redundant
+copy rather than shown twice. `--precision {orders,full}` is retained for the
 `fmt_duration` / `fmt_log_count` utilities and backward compatibility; the table
 itself is always human-readable, so pull exact figures from `--csv`. Provenance
 labels are set with `--curve-name` and `--corpus`.
@@ -639,6 +648,12 @@ python3 ecdsa_attack_complexity.py
 # Scarce supply: 200 signatures exist under the target key, blind 50% pre-filter
 python3 ecdsa_attack_complexity.py --supply scarce --t-raw 200 \
         --filter-pass-rate 0.5
+
+# One table per pool size, to see how the quantiles move with the pool (§3.10):
+python3 ecdsa_attack_complexity.py --supply scarce --t-raw 100 200 500 \
+        --p-ml-start 90 --p-ml-stop 90
+python3 ecdsa_attack_complexity.py --supply scarce \
+        --t-raw-range 100 1000 100 --p-ml-start 90 --p-ml-stop 90
 
 # ... and with a pre-filter that actually enriches the pool (recall > pass rate)
 python3 ecdsa_attack_complexity.py --supply scarce --t-raw 500 \
@@ -702,7 +717,7 @@ constructed to hit the target exactly.
 
 ## 7. Verified invariants
 
-`tests/run_tests.py` holds **78 tests** built on `unittest`, grouped into
+`tests/run_tests.py` holds **84 tests** built on `unittest`, grouped into
 `TestCase` classes by concern. The default runner prints a table; each class
 docstring supplies a section heading and each method name plainly describes the
 invariant it checks. (An earlier revision prefixed every name with an audit ID

@@ -1084,6 +1084,54 @@ class TestCostModelReporting(unittest.TestCase):
                     "90", "--p-ml-stop", "90", "--no-legend"])
         self.assertIn("need T_raw >=", out)
 
+    def test_multiple_pools_print_one_table_each(self):
+        """--t-raw 100 200 300 emits one RESULTS table per pool, each labelled
+        with its own T_raw, so pool size can be compared side by side."""
+        out = _cli(["--supply", "scarce", "--t-raw", "100", "200", "300",
+                    "--p-ml-start", "90", "--p-ml-stop", "90", "--no-legend"])
+        self.assertEqual(out.count("RESULTS"), 3)
+        for T in (100, 200, 300):
+            self.assertIn(f"T_raw = {T} available", out)
+
+    def test_t_raw_range_generates_arithmetic_pools(self):
+        """--t-raw-range MIN MAX STEP expands to MIN, MIN+STEP, ... <= MAX."""
+        out = _cli(["--supply", "scarce", "--t-raw-range", "100", "300", "100",
+                    "--p-ml-start", "90", "--p-ml-stop", "90", "--no-legend"])
+        self.assertEqual(out.count("RESULTS"), 3)
+        for T in (100, 200, 300):
+            self.assertIn(f"T_raw = {T} available", out)
+        self.assertNotIn("T_raw = 400", out)
+
+    def test_pool_list_is_sorted_and_deduplicated(self):
+        """--t-raw and --t-raw-range merge into one sorted, unique list."""
+        a = A.parse_args(["--supply", "scarce", "--t-raw", "300", "150",
+                          "--t-raw-range", "100", "300", "100"])
+        self.assertEqual(a.pool_sizes, [100, 150, 200, 300])
+
+    def test_t_raw_range_rejects_descending_bounds(self):
+        with contextlib.redirect_stderr(io.StringIO()), \
+                self.assertRaises(SystemExit):
+            A.parse_args(["--supply", "scarce",
+                          "--t-raw-range", "300", "100", "50"])
+
+    def test_unlimited_supply_is_one_infinite_pool_pass(self):
+        """Unlimited supply still makes exactly one (infinite-pool) pass."""
+        self.assertEqual(A.parse_args([]).pool_sizes, [None])
+
+    def test_redundant_bayes_column_hidden_by_default(self):
+        """P(clean|pass) = p_clean under the uninformative default filter
+        (recall = pass_rate), so the column is omitted as redundant; an
+        informative filter (recall != pass_rate) brings it back."""
+        blind = _cli(["--supply", "scarce", "--t-raw", "500", "--p-ml-start",
+                      "90", "--p-ml-stop", "90", "--no-legend"])
+        self.assertNotIn("P(cln|pass)", blind)
+        informative = _cli(["--supply", "scarce", "--t-raw", "500",
+                            "--filter-pass-rate", "0.9", "--filter-recall",
+                            "0.99", "--p-ml-start", "90", "--p-ml-stop", "90",
+                            "--no-legend"])
+        self.assertIn("P(cln|pass)", informative)
+        self.assertIn("0.8118", informative)
+
     def test_readme_defaults_match_the_parser(self):
         """The README must not drift from the code again.
 
