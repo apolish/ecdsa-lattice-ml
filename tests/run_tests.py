@@ -1125,10 +1125,14 @@ class TestCostModelReporting(unittest.TestCase):
         blind = _cli(["--supply", "scarce", "--t-raw", "500", "--p-ml-start",
                       "90", "--p-ml-stop", "90", "--no-legend"])
         self.assertNotIn("P(cln|pass)", blind)
+        # p_mag is pinned so the expected P(clean|pass) does not depend on the
+        # parser's default (which is a tunable research parameter): with
+        # p_b = 0.90 and p_m = 0.82, p_clean = 0.738 and
+        # P(clean|pass) = 0.738 * 0.99 / 0.9 = 0.8118.
         informative = _cli(["--supply", "scarce", "--t-raw", "500",
-                            "--filter-pass-rate", "0.9", "--filter-recall",
-                            "0.99", "--p-ml-start", "90", "--p-ml-stop", "90",
-                            "--no-legend"])
+                            "--p-mag", "82", "--filter-pass-rate", "0.9",
+                            "--filter-recall", "0.99", "--p-ml-start", "90",
+                            "--p-ml-stop", "90", "--no-legend"])
         self.assertIn("P(cln|pass)", informative)
         self.assertIn("0.8118", informative)
 

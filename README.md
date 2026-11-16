@@ -468,10 +468,10 @@ underflows float64. Parallelism is linear: each reduction is independent.
 <!-- defaults:begin -->
 Defaults (machine-checked by `test_readme_defaults_match_the_parser`):
 `curve_bits=256`, `leak_bits=[6]`, `safety_factor=1.3`, `dim_overhead=2`,
-`p_mag=82.0`, `p_mag_mode=conditional`, `correlation=0.0`,
+`p_mag=86.4`, `p_mag_mode=conditional`, `correlation=0.0`,
 `p_ml_start=80.0`, `p_ml_stop=99.0`, `p_ml_step=1.0`,
 `supply=unlimited`, `filter_pass_rate=1.0`, `p_reduction_success=1.0`,
-`t_per_run_sec=2.0`, `t_run_doubling_dims=None`, `cores=[1, 8, 64]`,
+`t_per_run_sec=2.0`, `t_run_doubling_dims=None`, `cores=[1, 16, 256]`,
 `precision=orders`, `curve_name=secp256k1`, `corpus=None`.
 <!-- defaults:end -->
 
