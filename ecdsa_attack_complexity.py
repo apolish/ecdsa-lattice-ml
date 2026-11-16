@@ -63,6 +63,9 @@ same model as v2 and produces identical numbers)
     than the i.i.d. floor, and near the minimum the mean becomes unbounded and
     the 95th percentile unreachable -- so seeing them side by side is what makes
     the pool a tunable strategy variable rather than a hidden assumption.
+    When --supply scarce is given with neither flag, the pool sweep defaults to
+    DEFAULT_SCARCE_POOLS = [200, 300, ..., 1000]; an explicit --t-raw or
+    --t-raw-range replaces it.
 
 Nothing below the "Pure mathematics" line was changed in substance from v2; the
 model and every formula are preserved. Only presentation was reworked.
@@ -83,6 +86,12 @@ from typing import Sequence
 
 _LN10 = log(10.0)
 _LOG10_SEC_PER_YEAR = log10(31_536_000.0)
+
+# Pool sizes swept when --supply scarce is requested without --t-raw or
+# --t-raw-range. 200..1000 step 100 spans the regime where the quantiles move
+# from "pathological, mean unbounded" up toward the i.i.d. floor, which is the
+# range worth seeing for pool-size strategy analysis.
+DEFAULT_SCARCE_POOLS = [200, 300, 400, 500, 600, 700, 800, 900, 1000]
 
 KNOWN_UNVALIDATED = (
     "p_b is an assumed oracle accuracy, not a measured capability "
@@ -874,7 +883,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    metavar="N",
                    help="signatures available under the target key; one or more "
                         "values print one table per pool, e.g. --t-raw 100 200 "
-                        "300 (required for --supply scarce)")
+                        f"300. In scarce mode, if neither --t-raw nor "
+                        f"--t-raw-range is given, the default sweep "
+                        f"{DEFAULT_SCARCE_POOLS} is used.")
     s.add_argument("--t-raw-range", type=int, nargs=3,
                    metavar=("MIN", "MAX", "STEP"), default=None,
                    help="generate pool sizes MIN, MIN+STEP, ... up to MAX "
@@ -958,8 +969,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                 p.error("--t-raw-range requires 1 <= MIN <= MAX")
             pools += list(range(lo, hi + 1, step))
         if not pools:
-            p.error("--supply scarce requires --t-raw N [N ...] "
-                    "or --t-raw-range MIN MAX STEP")
+            pools = list(DEFAULT_SCARCE_POOLS)   # neither flag given: sweep default
         if any(T < 1 for T in pools):
             p.error("pool sizes (--t-raw) must be >= 1")
         a.pool_sizes = sorted(set(pools))
@@ -989,7 +999,7 @@ def main(argv: list[str] | None = None) -> int:
         leak_bits=a.leak_bits[0], safety_factor=a.safety_factor,
         dim_overhead=a.dim_overhead, p_mag=a.p_mag, p_mag_mode=a.p_mag_mode,
         correlation=a.correlation, acc_start=a.p_ml_start, acc_stop=a.p_ml_stop,
-        acc_step=a.p_ml_step, supply=a.supply, t_raw=[200, 300, 400, 500, 600, 700, 800, 900, 1000],
+        acc_step=a.p_ml_step, supply=a.supply, t_raw=None,
         filter_pass_rate=a.filter_pass_rate, filter_recall=a.filter_recall,
         p_reduction_success=a.p_reduction_success,
         t_per_run_sec=a.t_per_run_sec, t_run_dim_ref=a.t_run_dim_ref,

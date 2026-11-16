@@ -583,7 +583,11 @@ undersized pool is told the exact minimum it needs (`need T_raw >= N`, computed
 by an exact step-1 search). `--t-raw` accepts several sizes
 (`--t-raw 100 200 300`) and `--t-raw-range MIN MAX STEP` generates an arithmetic
 sweep; each pool size prints its own table, so the pool becomes a visible
-strategy variable rather than the hidden infinite-pool assumption. The quantiles
+strategy variable rather than the hidden infinite-pool assumption. With neither
+flag, `--supply scarce` sweeps the default pool set
+`DEFAULT_SCARCE_POOLS = [200, 300, …, 1000]` (an explicit `--t-raw` or
+`--t-raw-range` replaces it); `--supply unlimited` is still a single
+infinite-pool pass. The quantiles
 move strongly with it: a finite pool is always worse than the i.i.d. floor, and
 near the minimum (`T_raw` just above `m_req / p_clean`) the mean is unbounded and
 the 95th percentile unreachable. The `P(clean|pass)` column is printed only when
@@ -654,6 +658,8 @@ python3 ecdsa_attack_complexity.py --supply scarce --t-raw 100 200 500 \
         --p-ml-start 90 --p-ml-stop 90
 python3 ecdsa_attack_complexity.py --supply scarce \
         --t-raw-range 100 1000 100 --p-ml-start 90 --p-ml-stop 90
+# ... or just the default sweep [200, 300, ..., 1000] when no pool is given:
+python3 ecdsa_attack_complexity.py --supply scarce --p-ml-start 90 --p-ml-stop 90
 
 # ... and with a pre-filter that actually enriches the pool (recall > pass rate)
 python3 ecdsa_attack_complexity.py --supply scarce --t-raw 500 \

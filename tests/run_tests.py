@@ -869,9 +869,20 @@ class TestCostModelSupply(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     A.parse_args(bad)
 
-    def test_scarce_supply_requires_t_raw(self):
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            A.parse_args(["--supply", "scarce"])
+    def test_scarce_without_t_raw_uses_default_pool_sweep(self):
+        """--supply scarce with neither --t-raw nor --t-raw-range sweeps the
+        default pool set (DEFAULT_SCARCE_POOLS) instead of erroring."""
+        a = A.parse_args(["--supply", "scarce"])
+        self.assertEqual(a.pool_sizes, A.DEFAULT_SCARCE_POOLS)
+        self.assertEqual(a.pool_sizes,
+                         [200, 300, 400, 500, 600, 700, 800, 900, 1000])
+
+    def test_explicit_t_raw_overrides_the_default_sweep(self):
+        """An explicit --t-raw replaces the default sweep rather than merging
+        with it, so the default applies only when nothing is given."""
+        self.assertEqual(
+            A.parse_args(["--supply", "scarce", "--t-raw", "150"]).pool_sizes,
+            [150])
 
 
 # ==========================================================================
