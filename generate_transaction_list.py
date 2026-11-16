@@ -396,7 +396,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
                    help="Private key to use (0 = random pool, else this single key)")
     p.add_argument("--keys", type=_positive_int, default=1,
                    help="Total unique keys to generate")
-    p.add_argument("--tx-per-key", type=_positive_int, default=200,
+    p.add_argument("--tx-per-key", type=_positive_int, default=1000,
                    help="Transactions per key")
     p.add_argument("--min-start-range", type=_positive_int, default=10,
                    help="Minimum start range for private key and k-nonce generation")

@@ -851,7 +851,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     g.add_argument("--p-ml-start", type=float, default=80.0)
     g.add_argument("--p-ml-stop", type=float, default=99.0)
     g.add_argument("--p-ml-step", type=float, default=1.0)
-    g.add_argument("--p-mag", type=float, default=82.0,
+    g.add_argument("--p-mag", type=float, default=86.40,
                    help="magnitude predictor accuracy in %%")
     g.add_argument("--p-mag-mode", choices=["conditional", "marginal"],
                    default="conditional",
@@ -903,7 +903,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     c.add_argument("--t-run-doubling-dims", type=float, default=None,
                    help="dimensions per doubling of reduction cost. Omit for "
                         "a FLAT (wrong) model that forbids cross-L comparison.")
-    c.add_argument("--cores", type=int, nargs="+", default=[1, 8, 64],
+    c.add_argument("--cores", type=int, nargs="+", default=[1, 16, 256],
                    help="core counts for which wall-clock is reported")
 
     o = p.add_argument_group("output")
