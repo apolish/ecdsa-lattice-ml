@@ -22,6 +22,13 @@ Read this section before interpreting any number this project prints.
 - Evaluates a cost model for a two-predictor subset HNP lattice attack under an
   assumed nonce-bit leak, reporting a distribution of reduction counts rather
   than a single figure (§3.10).
+- Makes that distribution **experimentally testable**: `ecdsa_quantile_search.py`
+  (§4) runs the actual random-subset search against a concrete signature list
+  and places the observed reduction count against the quantiles the cost model
+  predicts, so the §3.10 quantile distribution is no longer only an analytic
+  claim — it can be checked against real runs. The predicted quantiles remain
+  the authority of `ecdsa_attack_complexity.py`; the search only tests against
+  them (still conditional on the same unbuilt oracle — see below).
 
 **What the code does NOT do, and why it matters:**
 
@@ -60,6 +67,7 @@ ecdsa_lattice_ml/
 │   └── _ripemd160.py                         # dependency-free RIPEMD-160 (OpenSSL 3.x fallback)
 ├── generate_transaction_list.py              # signature corpus + SIMULATED predictor + report
 ├── ecdsa_attack_complexity.py                # closed-form HNP subset-attack cost model
+├── ecdsa_quantile_search.py                   # experimental check: actual search vs predicted quantiles
 ├── lattice/
 ├── models/
 ├── tests/
@@ -602,6 +610,51 @@ Key helpers: `joint_clean_probability`, `bayes_post_clean`,
 `min_raw_for_pool`; formatting via `human_count` / `human_odds` / `human_mean` /
 `human_duration`, with `fmt_log_count` / `fmt_duration` retained.
 
+### `ecdsa_quantile_search.py`
+
+The **experimental counterpart** to the §3.10 cost model. Where
+`ecdsa_attack_complexity.py` predicts a distribution of reduction counts
+analytically, this script runs the actual Strategy-1 search and tests an
+observed count against that prediction. It loads a real signature list
+(`--data`), draws random `m`-subsets, and accepts a draw only when **all `m`
+drawn signatures are clean** — read from the file's own `ml_match_k_val` /
+`ml_match_k_mag` columns, never re-simulated — counting draws `N` until the
+first all-clean subset. The outcome is then classified against the plan:
+`success` at `N ≤ p95`, `over_p95` beyond it but under a catastrophe ceiling
+`p95 × (1 + --p95-tolerance-pct/100)`, and `catastrophic` if that ceiling is
+reached with no subset. The report gives `N`, its deviation from each of
+`--p5 / --p50 / --p95`, where it landed on the predicted curve, and the selected
+subset as a table of pool index and signature `s`.
+
+**The plan is the model's, not this script's.** The three quantiles are inputs.
+Their defaults are the scarce-mode output of `ecdsa_attack_complexity.py` for
+the canonical oracle (`p_ml = 90%`, `p_mag = 86.4%`, pool `T = 1000`,
+`leak = 6` bits → `m_req = 56`), i.e. the run
+`--supply scarce --p-ml-start 90 --p-ml-stop 90 --t-raw 1000 --leak-bits 6`:
+`p05 = 69,656`, `p50 = 1,326,417`, `p95 = 13,219,421` — verified identical to the
+model, to the `--csv` log-scale rounding. This script
+**re-derives nothing**; for any other oracle, re-run `ecdsa_attack_complexity.py`
+and pass its quantiles via `--p5/--p50/--p95`. Changing the oracle (`--p-val`,
+`--p-mag`, `--transactions`, `--subset-size`) while leaving the quantiles at
+their defaults prints a loud warning, since the canonical defaults no longer
+describe that scenario. `--transactions` is a *declared* pool size that must
+match the data file exactly, or the run stops.
+
+**What a run measures, honestly.** One run is one sample of `N`. Repeated runs
+over different `--seed` on a *fixed* file trace the realized-pool law
+(hypergeometric–geometric for that file's actual clean count) — the
+per-composition layer of §3.10. The model's quantiles are the composition-
+*averaged* planning envelope (`C ~ Binomial(T, p_clean)`), so one pool's results
+fall somewhere inside it rather than reproducing it: a clean-rich pool lands low,
+a clean-poor one high. The draw sequence is a deterministic block-counter indexed
+by `(seed, block, i)`, so the search is **crash-safe and resumable** — a
+checkpoint stores only the next draw index, and a killed run (or `Ctrl-C`)
+resumes from exactly where it stopped, up to the ceiling. A found subset is
+passed to a documented lattice seam (`solve_with_lattice`, a stub returning
+`None`) and can be written as a handoff JSON (`--emit-subset`); the reduction
+itself is deliberately **not** implemented. `--self-test` checks the engine's
+reconstruction, resume and count-parsing invariants. Standard library only.
+
 ---
 
 ## 5. Usage
@@ -674,6 +727,24 @@ python3 ecdsa_attack_complexity.py --p-mag-mode marginal \
 python3 ecdsa_attack_complexity.py --leak-bits 4 6 8 \
         --t-per-run-sec 2.0 --t-run-dim-ref 58 --t-run-doubling-dims 12 \
         --cores 1 8 64 --csv complexity.csv
+
+# Experimental check (§4): run the ACTUAL search and place the reduction count
+# against the model's quantiles; defaults match the canonical oracle above
+python3 ecdsa_quantile_search.py
+python3 ecdsa_quantile_search.py --self-test       # engine invariants, no search
+
+# Hand the found 56-subset to a future lattice as JSON
+python3 ecdsa_quantile_search.py --emit-subset subset.json
+
+# Trace the realized-pool distribution: many seeds on the same file
+for s in $(seq 1 50); do
+    python3 ecdsa_quantile_search.py --seed "run$s" --quiet
+done
+
+# A different oracle: take ITS quantiles from ecdsa_attack_complexity.py and pass
+# them in (this script never re-derives the plan); counts accept K/M suffixes
+python3 ecdsa_quantile_search.py --p-val 0.95 --p-mag 0.90 \
+        --p5 30K --p50 500K --p95 6M
 ```
 
 Note the explicit path in the `pytest` form. pytest only auto-discovers files
