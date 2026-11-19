@@ -67,11 +67,11 @@ ecdsa_lattice_ml/
 │   └── _ripemd160.py                         # dependency-free RIPEMD-160 (OpenSSL 3.x fallback)
 ├── generate_transaction_list.py              # signature corpus + SIMULATED predictor + report
 ├── ecdsa_attack_complexity.py                # closed-form HNP subset-attack cost model
-├── ecdsa_quantile_search.py                   # experimental check: actual search vs predicted quantiles
+├── ecdsa_quantile_search.py                  # experimental check: actual search vs predicted quantiles
 ├── lattice/
 ├── models/
 ├── tests/
-│   └── run_tests.py                          # 78 regression tests + table runner (§7)
+│   └── run_tests.py                          # 85 regression tests + table runner (§7)
 └── README.md
 ```
 
@@ -171,7 +171,7 @@ point 3 below and §7.2.
   event sits at `≈ 3.73e−39`, an expected wait of ~7e28 years at the measured
   signing rate. Bug B6 was findable *only* because a small curve exists.
 - **Speed.** ~26,800 sign/s and ~16,800 verify/s versus ~125 and ~63 on
-  secp256k1 (214× and 266×). 29 of the 78 regression tests touch a small curve
+  secp256k1 (214× and 266×). 29 of the 85 regression tests touch a small curve
   for that reason, and the whole suite runs in about one second.
 - **What it does NOT cover.** `secp17k1` has `a=0`, exactly like secp256k1. The `+a`
   term in the doubling slope is therefore dead code on both shipped curves — a
