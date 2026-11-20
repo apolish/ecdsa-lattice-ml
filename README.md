@@ -3,8 +3,53 @@
 Investigation of ECDSA state spaces, lattice-based cryptanalysis, and
 ML applications in predicting hidden cryptographic meta-invariants.
 
-> ⚠️ **NOTICE:** This project is under active research and development,
-> so some files **may not be added in time**.
+> 🛑 **PROJECT STATUS — SUSPENDED INDEFINITELY (2026-11-20).**
+> Active development has stopped. The reason is structural, not organisational:
+> the project's central goal reduces to the elliptic-curve discrete logarithm
+> problem (ECDLP). See [§0](#0-why-this-project-is-suspended) for the full reason.
+
+---
+
+## 0. Why this project is suspended
+
+The project set out to predict the leading bits of each ECDSA nonce `k` and feed
+them to an HNP lattice to recover the private key `d`. That goal is unreachable
+by the methods this project is built on, for reasons the repository itself
+already documents:
+
+- **The core deliverable is ECDLP in disguise.** Recovering any information about
+  a *correctly generated* nonce `k` from the public tuple `(r, s, z, Q)` is a
+  (partial) elliptic-curve discrete logarithm, because `r = (k·G).x mod n`. This
+  is not an unimplemented feature or a tuning problem — it is the security
+  assumption of secp256k1. No machine-learning model and no amount of lattice
+  engineering reaches it (§1, §3.10).
+- **The one channel actually investigated is a proven dead end.** The
+  leading-digit → magnitude predictor (§3.9) is a constant function: its ≈0.90
+  accuracy is the prior, supplying a fraction of a bit, not the `L = 6` bits the
+  cost model assumes. No other public-data channel exists that does not reduce to
+  the point above.
+- **The completed part prices a nonexistent oracle.** The HNP cost model
+  (§3.10, "Phase 1") is entirely conditional on an oracle that supplies those
+  bits for free. It models the cheap half of an attack whose expensive half is
+  assumed away, over a lattice technique that is itself already published
+  (Howgrave-Graham & Smart 2001; Nguyen & Shparlinski 2003); it adds no lattice
+  reduction of its own.
+- **The tractable targets are out of scope and already solved.** The only ways
+  nonce-bit recovery becomes feasible — a biased or broken RNG, or a side channel
+  — are explicitly excluded here (this project models correct RFC 6979 nonces with
+  no leak) and are already covered by published attacks (Minerva, LadderLeak,
+  TPM-Fail). Pursuing them would be re-implementing known work, not advancing this
+  project's thesis.
+
+**Conclusion.** The project has reached the boundary of what it can achieve
+without a direct breakthrough against ECDLP, which is far outside its scope and
+methods. It therefore demonstrates **no vulnerability in secp256k1** and is
+**suspended indefinitely**. Work would resume only if the ECDLP barrier were
+addressed directly, rather than relabelled as a prediction task.
+
+The code remains available as an honest negative result and as a reusable,
+well-tested secp256k1 / HNP-cost-model reference. The sections below are
+preserved as they stood when work stopped.
 
 ---
 
